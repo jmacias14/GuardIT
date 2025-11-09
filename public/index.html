@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GuardIT Dashboard</title>
+    <link rel="stylesheet" href="output.css">
+    <style>
+        /* Custom animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .animate-pulse-custom {
+            animation: pulse 2s infinite;
+        }
+
+        /* Status color classes for dark mode */
+        .status-border-running { border-left-color: #3b82f6; }
+        .status-border-completed { border-left-color: #10b981; }
+        .status-border-error, .status-border-failed { border-left-color: #ef4444; }
+        .status-border-warning { border-left-color: #f59e0b; }
+        .status-border-no_data { border-left-color: #6b7280; }
+
+        .status-bg-running { background-color: #dbeafe; color: #1e40af; }
+        .status-bg-completed { background-color: #d1fae5; color: #065f46; }
+        .status-bg-error, .status-bg-failed { background-color: #fee2e2; color: #991b1b; }
+        .status-bg-warning { background-color: #fef3c7; color: #92400e; }
+        .status-bg-no_data { background-color: #e5e7eb; color: #6b7280; }
+
+        .status-dot-running { background-color: #3b82f6; }
+        .status-dot-completed { background-color: #10b981; }
+        .status-dot-error, .status-dot-failed { background-color: #ef4444; }
+        .status-dot-warning { background-color: #f59e0b; }
+        .status-dot-no_data { background-color: #9ca3af; }
+
+        .status-dot-running.animate, .status-dot-error.animate, .status-dot-failed.animate {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased">
+    <!-- Sidebar -->
+    <div class="fixed left-0 top-0 w-72 h-screen bg-slate-800 shadow-xl overflow-y-auto z-50">
+        <!-- Sidebar Header -->
+        <div class="bg-slate-700 px-6 py-6 border-b border-slate-600">
+            <h2 class="text-xl font-bold text-slate-50 mb-2">GuardIT</h2>
+            <div class="text-xs text-slate-300 space-y-1">
+                <div><span id="serverCount">0 servers</span> • <span id="activeBackups">0 active</span></div>
+            </div>
+        </div>
+
+        <!-- Server List -->
+        <div class="server-list divide-y divide-slate-700" id="serverList">
+            <!-- Server list items will be populated here -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="ml-72 flex-1 flex flex-col min-h-screen bg-slate-900">
+        <div class="flex-1 p-6">
+            <div class="max-w-7xl mx-auto">
+                <!-- Header -->
+                <header class="bg-slate-800 px-6 py-6 rounded-lg shadow-lg mb-6 border border-slate-700">
+                    <div class="flex justify-between items-center">
+                        <h1 class="text-3xl font-bold text-slate-50">GuardIT Dashboard</h1>
+                        <div class="flex items-center gap-3 text-sm">
+                            <div class="w-3 h-3 rounded-full bg-gray-400 animate-pulse-custom" id="connectionDot"></div>
+                            <span class="text-slate-300" id="connectionText">Connecting...</span>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Controls -->
+                <div class="flex gap-3 mb-6">
+                    <button onclick="refreshManual()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-50 font-semibold rounded-lg transition transform hover:-translate-y-0.5 shadow-md border border-slate-600 active:scale-95">
+                        🔄 Refresh
+                    </button>
+                    <button onclick="clearAll()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition transform hover:-translate-y-0.5 shadow-md active:scale-95">
+                        🗑️ Clear All
+                    </button>
+                </div>
+
+                <!-- Servers Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="serversGrid">
+                    <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
+                        <h2 class="text-2xl font-semibold text-slate-300 mb-2">No backup data yet</h2>
+                        <p class="text-slate-400">Waiting for servers to report their status...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let eventSource = null;
+        let statuses = {};
+
+        // Connect to SSE
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource(`${API_URL}/events`);
+
+            eventSource.onopen = () => {
+                console.log('SSE connection established');
+                updateConnectionStatus(true);
+            };
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'connected') {
+                    console.log('SSE connection confirmed');
+                } else if (data.type === 'initial') {
+                    statuses = data.statuses;
+                    renderServers();
+                } else if (data.type === 'update') {
+                    if (data.status === null) {
+                        delete statuses[data.serverId];
+                    } else {
+                        statuses[data.serverId] = data.status;
+                    }
+                    renderServers();
+                } else if (data.type === 'clear_all') {
+                    statuses = {};
+                    renderServers();
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('SSE connection error:', error);
+                updateConnectionStatus(false);
+                // Reconnect after 3 seconds
+                setTimeout(connectSSE, 3000);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+
+            if (connected) {
+                dot.classList.remove('bg-gray-400');
+                dot.classList.add('bg-green-500');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('bg-green-500');
+                dot.classList.add('bg-gray-400');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function updateStats() {
+            const serverCount = Object.keys(statuses).length;
+            const activeBackups = Object.values(statuses).filter(s => s.status === 'running').length;
+
+            document.getElementById('serverCount').textContent = `${serverCount} server${serverCount !== 1 ? 's' : ''}`;
+            document.getElementById('activeBackups').textContent = `${activeBackups} active`;
+        }
+
+        function renderSidebar() {
+            const serverList = document.getElementById('serverList');
+
+            if (Object.keys(statuses).length === 0) {
+                serverList.innerHTML = `
+                    <div class="px-6 py-8 text-center text-slate-400 text-sm">
+                        No servers yet
+                    </div>
+                `;
+                return;
+            }
+
+            const sortedServers = Object.entries(statuses).sort((a, b) => {
+                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
+                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
+            });
+
+            serverList.innerHTML = sortedServers.map(([serverId, status]) => `
+                <div class="px-6 py-4 cursor-pointer transition hover:bg-slate-700 border-l-4 status-border-${status.status}" data-server="${serverId}" onclick="scrollToServer('${serverId}')">
+                    <div class="flex justify-between items-center">
+                        <div class="text-sm font-medium text-slate-100 truncate" title="${serverId}">${serverId}</div>
+                        <div class="w-2.5 h-2.5 rounded-full status-dot-${status.status} flex-shrink-0 ${['running', 'error', 'failed'].includes(status.status) ? 'animate' : ''}"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function scrollToServer(serverId) {
+            const serverCard = document.querySelector(`[data-server-id="${serverId}"]`);
+            if (serverCard) {
+                serverCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                serverCard.style.transform = 'scale(1.02)';
+                setTimeout(() => {
+                    serverCard.style.transform = '';
+                }, 500);
+            }
+        }
+
+        function renderServers() {
+            const grid = document.getElementById('serversGrid');
+
+            // Update sidebar and stats
+            updateStats();
+            renderSidebar();
+
+            if (Object.keys(statuses).length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
+                        <h2 class="text-2xl font-semibold text-slate-300 mb-2">No backup data yet</h2>
+                        <p class="text-slate-400">Waiting for servers to report their status...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const sortedServers = Object.entries(statuses).sort((a, b) => {
+                // Sort by status priority: running > error > warning > completed > no_data
+                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
+                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
+            });
+
+            grid.innerHTML = sortedServers.map(([serverId, status]) => `
+                <div class="bg-slate-800 rounded-lg p-6 border-l-4 status-border-${status.status} shadow-lg hover:shadow-xl transition transform hover:-translate-y-1 relative border border-slate-700" data-server-id="${serverId}">
+                    <button class="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm opacity-0 hover:opacity-100 transition" onclick="deleteServer('${serverId}')" title="Remove">✕</button>
+
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-lg font-bold text-slate-50 flex-1">${serverId}</h3>
+                        <span class="ml-2 px-3 py-1 rounded-full text-xs font-semibold status-bg-${status.status}">${status.status.replace('_', ' ')}</span>
+                    </div>
+
+                    <p class="text-slate-300 text-sm mb-4 leading-relaxed">${status.message || 'No message'}</p>
+
+                    ${status.progress !== undefined && status.progress !== null ? `
+                        <div class="mb-4">
+                            <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                                <div class="bg-blue-500 h-full rounded-full transition-all" style="width: ${status.progress}%"></div>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-2">${status.progress}% complete</p>
+                        </div>
+                    ` : ''}
+
+                    <div class="text-xs text-slate-500 italic">Last update: ${status.lastUpdate || status.timestamp}</div>
+
+                    ${status.data ? `
+                        <div class="mt-4 p-3 bg-slate-700 rounded-lg">
+                            <p class="text-xs font-semibold text-slate-300 mb-2">Additional Data:</p>
+                            <pre class="text-xs text-slate-400 overflow-x-auto">${JSON.stringify(status.data, null, 2)}</pre>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function refreshManual() {
+            try {
+                const response = await fetch(`${API_URL}/api/status`);
+                statuses = await response.json();
+                renderServers();
+            } catch (error) {
+                console.error('Error refreshing:', error);
+            }
+        }
+
+        async function deleteServer(serverId) {
+            if (confirm(`Remove ${serverId} from the dashboard?`)) {
+                try {
+                    await fetch(`${API_URL}/api/status/${serverId}`, {
+                        method: 'DELETE'
+                    });
+                } catch (error) {
+                    console.error('Error deleting server:', error);
+                }
+            }
+        }
+
+        async function clearAll() {
+            if (confirm('Clear all backup statuses?')) {
+                try {
+                    await fetch(`${API_URL}/api/status`, {
+                        method: 'DELETE'
+                    });
+                } catch (error) {
+                    console.error('Error clearing all:', error);
+                }
+            }
+        }
+
+        // Connect on page load
+        connectSSE();
+    </script>
+</body>
+</html>

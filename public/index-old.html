@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backup Monitor Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: rgba(255, 255, 255, 0.95);
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .sidebar-header h2 {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+
+        .sidebar-stats {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .server-list {
+            padding: 10px 0;
+        }
+
+        .server-list-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .server-list-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-left-color: #667eea;
+        }
+
+        .server-list-item.active {
+            background: rgba(102, 126, 234, 0.15);
+            border-left-color: #667eea;
+        }
+
+        .server-list-item.status-running {
+            border-left-color: #3b82f6;
+        }
+
+        .server-list-item.status-completed {
+            border-left-color: #10b981;
+        }
+
+        .server-list-item.status-failed,
+        .server-list-item.status-error {
+            border-left-color: #ef4444;
+        }
+
+        .server-list-item.status-warning {
+            border-left-color: #f59e0b;
+        }
+
+        .server-name-text {
+            font-weight: 500;
+            font-size: 14px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 160px;
+        }
+
+        .server-status-badge {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .server-status-badge.running {
+            background: #3b82f6;
+            animation: pulse 2s infinite;
+        }
+
+        .server-status-badge.completed {
+            background: #10b981;
+        }
+
+        .server-status-badge.failed,
+        .server-status-badge.error {
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+
+        .server-status-badge.warning {
+            background: #f59e0b;
+        }
+
+        .main-content {
+            margin-left: 280px;
+            flex: 1;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 28px;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ccc;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: #10b981;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: white;
+            color: #667eea;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        button.danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .server-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .server-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+        }
+        
+        .server-card.running {
+            border-left: 5px solid #3b82f6;
+        }
+        
+        .server-card.completed {
+            border-left: 5px solid #10b981;
+        }
+        
+        .server-card.error, .server-card.failed {
+            border-left: 5px solid #ef4444;
+        }
+        
+        .server-card.warning {
+            border-left: 5px solid #f59e0b;
+        }
+        
+        .server-card.no_data {
+            border-left: 5px solid #9ca3af;
+            opacity: 0.7;
+        }
+        
+        .server-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .server-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status-badge.running {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .status-badge.completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-badge.error, .status-badge.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .status-badge.warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-badge.no_data {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+        
+        .message {
+            color: #666;
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .progress-container {
+            margin-bottom: 15px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.5s ease;
+            border-radius: 10px;
+        }
+        
+        .progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .timestamp {
+            font-size: 12px;
+            color: #999;
+            font-style: italic;
+        }
+        
+        .extra-data {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .extra-data pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .no-servers {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: 10px;
+            color: #666;
+        }
+        
+        .no-servers h2 {
+            color: #999;
+            margin-bottom: 10px;
+        }
+        
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .server-card:hover .delete-btn {
+            opacity: 0.7;
+        }
+        
+        .delete-btn:hover {
+            opacity: 1 !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>Backup Servers</h2>
+            <div class="sidebar-stats">
+                <span id="serverCount">0 servers</span> •
+                <span id="activeBackups">0 active</span>
+            </div>
+        </div>
+        <div class="server-list" id="serverList">
+            <!-- Server list items will be populated here -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container">
+            <header>
+                <h1>🗄️ Backup Monitor Dashboard</h1>
+                <div class="connection-status">
+                    <div class="status-dot" id="connectionDot"></div>
+                    <span id="connectionText">Connecting...</span>
+                </div>
+            </header>
+
+            <div class="controls">
+                <button onclick="refreshManual()">🔄 Refresh</button>
+                <button class="danger" onclick="clearAll()">🗑️ Clear All</button>
+            </div>
+
+            <div class="grid" id="serversGrid">
+                <div class="no-servers">
+                    <h2>No backup data yet</h2>
+                    <p>Waiting for servers to report their status...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let eventSource = null;
+        let statuses = {};
+        
+        // Connect to SSE
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource(`${API_URL}/events`);
+            
+            eventSource.onopen = () => {
+                console.log('SSE connection established');
+                updateConnectionStatus(true);
+            };
+            
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'connected') {
+                    console.log('SSE connection confirmed');
+                } else if (data.type === 'initial') {
+                    statuses = data.statuses;
+                    renderServers();
+                } else if (data.type === 'update') {
+                    if (data.status === null) {
+                        delete statuses[data.serverId];
+                    } else {
+                        statuses[data.serverId] = data.status;
+                    }
+                    renderServers();
+                } else if (data.type === 'clear_all') {
+                    statuses = {};
+                    renderServers();
+                }
+            };
+            
+            eventSource.onerror = (error) => {
+                console.error('SSE connection error:', error);
+                updateConnectionStatus(false);
+                // Reconnect after 3 seconds
+                setTimeout(connectSSE, 3000);
+            };
+        }
+        
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+        
+        function updateStats() {
+            const serverCount = Object.keys(statuses).length;
+            const activeBackups = Object.values(statuses).filter(s => s.status === 'running').length;
+
+            document.getElementById('serverCount').textContent = `${serverCount} server${serverCount !== 1 ? 's' : ''}`;
+            document.getElementById('activeBackups').textContent = `${activeBackups} active`;
+        }
+
+        function renderSidebar() {
+            const serverList = document.getElementById('serverList');
+
+            if (Object.keys(statuses).length === 0) {
+                serverList.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #666; font-size: 14px;">
+                        No servers yet
+                    </div>
+                `;
+                return;
+            }
+
+            const sortedServers = Object.entries(statuses).sort((a, b) => {
+                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
+                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
+            });
+
+            serverList.innerHTML = sortedServers.map(([serverId, status]) => `
+                <div class="server-list-item status-${status.status}" data-server="${serverId}" onclick="scrollToServer('${serverId}')">
+                    <div class="server-name-text" title="${serverId}">${serverId}</div>
+                    <div class="server-status-badge ${status.status}"></div>
+                </div>
+            `).join('');
+        }
+
+        function scrollToServer(serverId) {
+            const serverCard = document.querySelector(`[data-server-id="${serverId}"]`);
+            if (serverCard) {
+                serverCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                serverCard.style.transform = 'scale(1.02)';
+                setTimeout(() => {
+                    serverCard.style.transform = '';
+                }, 500);
+            }
+        }
+
+        function renderServers() {
+            const grid = document.getElementById('serversGrid');
+
+            // Update sidebar and stats
+            updateStats();
+            renderSidebar();
+
+            if (Object.keys(statuses).length === 0) {
+                grid.innerHTML = `
+                    <div class="no-servers">
+                        <h2>No backup data yet</h2>
+                        <p>Waiting for servers to report their status...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const sortedServers = Object.entries(statuses).sort((a, b) => {
+                // Sort by status priority: running > error > warning > completed > no_data
+                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
+                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
+            });
+            
+            grid.innerHTML = sortedServers.map(([serverId, status]) => `
+                <div class="server-card ${status.status}" data-server-id="${serverId}">
+                    <button class="delete-btn" onclick="deleteServer('${serverId}')" title="Remove">✕</button>
+                    <div class="server-header">
+                        <div class="server-name">${serverId}</div>
+                        <div class="status-badge ${status.status}">${status.status.replace('_', ' ')}</div>
+                    </div>
+                    <div class="message">${status.message || 'No message'}</div>
+                    ${status.progress !== undefined && status.progress !== null ? `
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${status.progress}%"></div>
+                            </div>
+                            <div class="progress-text">${status.progress}% complete</div>
+                        </div>
+                    ` : ''}
+                    <div class="timestamp">Last update: ${status.lastUpdate || status.timestamp}</div>
+                    ${status.data ? `
+                        <div class="extra-data">
+                            <strong>Additional Data:</strong>
+                            <pre>${JSON.stringify(status.data, null, 2)}</pre>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        
+        async function refreshManual() {
+            try {
+                const response = await fetch(`${API_URL}/api/status`);
+                statuses = await response.json();
+                renderServers();
+            } catch (error) {
+                console.error('Error refreshing:', error);
+            }
+        }
+        
+        async function deleteServer(serverId) {
+            if (confirm(`Remove ${serverId} from the dashboard?`)) {
+                try {
+                    await fetch(`${API_URL}/api/status/${serverId}`, {
+                        method: 'DELETE'
+                    });
+                } catch (error) {
+                    console.error('Error deleting server:', error);
+                }
+            }
+        }
+        
+        async function clearAll() {
+            if (confirm('Clear all backup statuses?')) {
+                try {
+                    await fetch(`${API_URL}/api/status`, {
+                        method: 'DELETE'
+                    });
+                } catch (error) {
+                    console.error('Error clearing all:', error);
+                }
+            }
+        }
+        
+        // Connect on page load
+        connectSSE();
+    </script>
+</body>
+</html>
