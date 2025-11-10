@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { StatusHistory, BackupTask, DailyMetrics } = require('./db/models');
+const { StatusHistory, BackupTask, DailyMetrics, Dashboard, DashboardSource, Alert, Keyword } = require('./db/models');
 
 const app = express();
 const PORT = 3000;
@@ -112,6 +112,40 @@ app.post('/api/status/:taskId', async (req, res) => {
             // Actualizar métricas diarias
             if (status === 'completed' || status === 'failed' || status === 'error') {
                 await DailyMetrics.updateDaily(taskId);
+            }
+
+            // Detectar palabras clave y crear alertas
+            if (message) {
+                try {
+                    const detectedKeywords = await Keyword.detectKeywords(message);
+                    for (const kw of detectedKeywords) {
+                        const alert = await Alert.create(
+                            taskId,
+                            kw.alert_type,
+                            kw.keyword,
+                            message,
+                            kw.severity
+                        );
+                        console.log(`[${taskId}] Alert created for keyword: ${kw.keyword}`);
+
+                        // Send browser notification for error/critical alerts
+                        if (kw.alert_type === 'error' || kw.alert_type === 'critical') {
+                            const task = await BackupTask.getById(taskId);
+                            broadcastUpdate('alert', {
+                                type: 'alert_notification',
+                                taskId: taskId,
+                                taskName: task?.display_name || taskId,
+                                alertType: kw.alert_type,
+                                message: message,
+                                severity: kw.severity,
+                                keyword: kw.keyword,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error detecting keywords/creating alerts:', error);
+                }
             }
         } catch (error) {
             console.error('Error saving to database:', error);
@@ -308,7 +342,7 @@ app.get('/api/tasks/:taskId', async (req, res) => {
 
 // Register a new backup task
 app.post('/api/tasks/register', async (req, res) => {
-    const { taskId, displayName, taskType, description, serverId } = req.body;
+    const { taskId, displayName, taskType, description, serverId, schedule, scheduleCron, comments } = req.body;
 
     // Validación de parámetros requeridos
     if (!taskId || !displayName) {
@@ -329,7 +363,7 @@ app.post('/api/tasks/register', async (req, res) => {
         }
 
         // Registrar nueva tarea
-        const task = await BackupTask.register(taskId, displayName, taskType, description, serverId);
+        const task = await BackupTask.register(taskId, displayName, taskType, description, serverId, schedule, scheduleCron, comments);
         console.log(`✓ Task registered: ${taskId}`);
         res.status(201).json(task);
     } catch (error) {
@@ -341,7 +375,7 @@ app.post('/api/tasks/register', async (req, res) => {
 // Update task
 app.put('/api/tasks/:taskId', async (req, res) => {
     const { taskId } = req.params;
-    const { displayName, description, taskType, serverId, isActive } = req.body;
+    const { displayName, description, taskType, serverId, isActive, schedule, scheduleCron, comments, enabled } = req.body;
 
     try {
         if (!dbReady) {
@@ -353,7 +387,7 @@ app.put('/api/tasks/:taskId', async (req, res) => {
             return res.status(404).json({ error: 'Task not found' });
         }
 
-        const updated = await BackupTask.update(taskId, { displayName, description, taskType, serverId, isActive });
+        const updated = await BackupTask.update(taskId, { displayName, description, taskType, serverId, isActive, schedule, scheduleCron, comments, enabled });
         console.log(`✓ Task updated: ${taskId}`);
         res.json(updated);
     } catch (error) {
@@ -495,6 +529,377 @@ app.post('/grafana/table', (req, res) => {
         rows: rows,
         type: 'table'
     }]);
+});
+
+// ============================================
+// Dashboard Management Endpoints
+// ============================================
+
+// Get all dashboards
+app.get('/api/dashboards', async (req, res) => {
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const dashboards = await Dashboard.getAll();
+        res.json(dashboards);
+    } catch (error) {
+        console.error('Error fetching dashboards:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new dashboard
+app.post('/api/dashboards/create', async (req, res) => {
+    const { dashboardId, displayName, description } = req.body;
+
+    if (!dashboardId || !displayName) {
+        return res.status(400).json({
+            error: 'Missing required fields: dashboardId, displayName'
+        });
+    }
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const existing = await Dashboard.getById(dashboardId);
+        if (existing) {
+            return res.status(409).json({ error: 'Dashboard ID already exists' });
+        }
+
+        const dashboard = await Dashboard.create(dashboardId, displayName, description);
+        console.log(`✓ Dashboard created: ${dashboardId}`);
+        res.status(201).json(dashboard);
+    } catch (error) {
+        console.error('Error creating dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get dashboard by ID with sources
+app.get('/api/dashboards/:dashboardId', async (req, res) => {
+    const { dashboardId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const dashboard = await Dashboard.getById(dashboardId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Dashboard not found' });
+        }
+
+        const sources = await DashboardSource.getByDashboard(dashboardId);
+        res.json({ ...dashboard, sources });
+    } catch (error) {
+        console.error('Error fetching dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update dashboard
+app.put('/api/dashboards/:dashboardId', async (req, res) => {
+    const { dashboardId } = req.params;
+    const { displayName, description, isActive } = req.body;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const dashboard = await Dashboard.getById(dashboardId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Dashboard not found' });
+        }
+
+        const updated = await Dashboard.update(dashboardId, { displayName, description, isActive });
+        console.log(`✓ Dashboard updated: ${dashboardId}`);
+        res.json(updated);
+    } catch (error) {
+        console.error('Error updating dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete dashboard
+app.delete('/api/dashboards/:dashboardId', async (req, res) => {
+    const { dashboardId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const dashboard = await Dashboard.getById(dashboardId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Dashboard not found' });
+        }
+
+        await Dashboard.delete(dashboardId);
+        console.log(`✓ Dashboard deleted: ${dashboardId}`);
+        res.json({ success: true, message: `Dashboard ${dashboardId} deleted` });
+    } catch (error) {
+        console.error('Error deleting dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// Dashboard Sources (Many-to-Many) Endpoints
+// ============================================
+
+// Add source to dashboard
+app.post('/api/dashboards/:dashboardId/sources', async (req, res) => {
+    const { dashboardId } = req.params;
+    const { taskId, widgetType = 'status', widgetConfig } = req.body;
+
+    if (!taskId) {
+        return res.status(400).json({ error: 'Missing required field: taskId' });
+    }
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        // Verify dashboard exists
+        const dashboard = await Dashboard.getById(dashboardId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Dashboard not found' });
+        }
+
+        // Verify task exists
+        const task = await BackupTask.getById(taskId);
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        const source = await DashboardSource.add(dashboardId, taskId, widgetType, widgetConfig);
+        console.log(`✓ Source added to dashboard: ${dashboardId} <- ${taskId}`);
+        res.status(201).json(source);
+    } catch (error) {
+        console.error('Error adding source to dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update widget configuration
+app.put('/api/dashboards/:dashboardId/sources/:taskId', async (req, res) => {
+    const { dashboardId, taskId } = req.params;
+    const { widgetType = 'status', widgetConfig } = req.body;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const source = await DashboardSource.get(dashboardId, taskId, widgetType);
+        if (!source) {
+            return res.status(404).json({ error: 'Source not found' });
+        }
+
+        const updated = await DashboardSource.updateWidget(dashboardId, taskId, widgetType, widgetConfig);
+        res.json(updated);
+    } catch (error) {
+        console.error('Error updating widget:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Remove source from dashboard
+app.delete('/api/dashboards/:dashboardId/sources/:taskId', async (req, res) => {
+    const { dashboardId, taskId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        await DashboardSource.remove(dashboardId, taskId);
+        console.log(`✓ Source removed from dashboard: ${dashboardId} -> ${taskId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error removing source from dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// Alerts Endpoints
+// ============================================
+
+// Get all active alerts (Global Alerts Dashboard)
+app.get('/api/alerts', async (req, res) => {
+    const { limit = 100 } = req.query;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const alerts = await Alert.getAllActive(limit);
+        res.json(alerts);
+    } catch (error) {
+        console.error('Error fetching alerts:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get alerts for specific task
+app.get('/api/alerts/:taskId', async (req, res) => {
+    const { taskId } = req.params;
+    const { status, limit = 50 } = req.query;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const alerts = await Alert.getByTask(taskId, status, limit);
+        res.json(alerts);
+    } catch (error) {
+        console.error('Error fetching task alerts:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Acknowledge alert
+app.post('/api/alerts/:alertId/acknowledge', async (req, res) => {
+    const { alertId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const alert = await Alert.acknowledge(alertId);
+        if (!alert) {
+            return res.status(404).json({ error: 'Alert not found' });
+        }
+
+        console.log(`✓ Alert acknowledged: ${alertId}`);
+        res.json(alert);
+    } catch (error) {
+        console.error('Error acknowledging alert:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Resolve alert
+app.post('/api/alerts/:alertId/resolve', async (req, res) => {
+    const { alertId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const alert = await Alert.resolve(alertId);
+        if (!alert) {
+            return res.status(404).json({ error: 'Alert not found' });
+        }
+
+        console.log(`✓ Alert resolved: ${alertId}`);
+        res.json(alert);
+    } catch (error) {
+        console.error('Error resolving alert:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// Keywords Management Endpoints
+// ============================================
+
+// Get all active keywords
+app.get('/api/keywords', async (req, res) => {
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const keywords = await Keyword.getAll();
+        res.json(keywords);
+    } catch (error) {
+        console.error('Error fetching keywords:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create custom keyword
+app.post('/api/keywords', async (req, res) => {
+    const { keyword, alertType, severity, description } = req.body;
+
+    if (!keyword || !alertType) {
+        return res.status(400).json({
+            error: 'Missing required fields: keyword, alertType'
+        });
+    }
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const existing = await Keyword.get(keyword);
+        if (existing) {
+            return res.status(409).json({ error: 'Keyword already exists' });
+        }
+
+        const kw = await Keyword.create(keyword, alertType, severity || 0, description);
+        console.log(`✓ Keyword created: ${keyword}`);
+        res.status(201).json(kw);
+    } catch (error) {
+        console.error('Error creating keyword:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update keyword
+app.put('/api/keywords/:keywordId', async (req, res) => {
+    const { keywordId } = req.params;
+    const { severity, description, isActive } = req.body;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const updated = await Keyword.update(keywordId, { severity, description, isActive });
+        if (!updated) {
+            return res.status(404).json({ error: 'Keyword not found' });
+        }
+
+        res.json(updated);
+    } catch (error) {
+        console.error('Error updating keyword:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete keyword
+app.delete('/api/keywords/:keywordId', async (req, res) => {
+    const { keywordId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const deleted = await Keyword.delete(keywordId);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Keyword not found' });
+        }
+
+        console.log(`✓ Keyword deleted: ${keywordId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting keyword:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

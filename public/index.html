@@ -38,67 +38,805 @@
         .status-dot-running.animate, .status-dot-error.animate, .status-dot-failed.animate {
             animation: pulse 2s infinite;
         }
+
+        /* Drag and drop styles */
+        .draggable-source {
+            cursor: move;
+            transition: all 0.2s;
+        }
+
+        .draggable-source.dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+        }
+
+        .draggable-source.drag-over {
+            border: 2px dashed #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+
+        /* Expandable card styles */
+        .source-card {
+            transition: max-height 0.3s ease;
+        }
+
+        .source-card.expanded {
+            max-height: 2000px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none;
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: #1e293b;
+            border-radius: 8px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid #475569;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans antialiased">
-    <!-- Sidebar -->
-    <div class="fixed left-0 top-0 w-72 h-screen bg-slate-800 shadow-xl overflow-y-auto z-50">
-        <!-- Sidebar Header -->
-        <div class="bg-slate-700 px-6 py-6 border-b border-slate-600">
-            <h2 class="text-xl font-bold text-slate-50 mb-2">GuardIT</h2>
-            <div class="text-xs text-slate-300 space-y-1">
-                <div><span id="serverCount">0 servers</span> • <span id="activeBackups">0 active</span></div>
+    <!-- Main Layout Container -->
+    <div class="flex h-screen">
+        <!-- Left Content Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-slate-800 px-6 py-4 border-b border-slate-700 shadow-lg">
+                <div class="flex justify-between items-center">
+                    <h1 class="text-3xl font-bold text-slate-50">GuardIT</h1>
+                    <div class="flex items-center gap-3 text-sm">
+                        <div class="w-3 h-3 rounded-full bg-gray-400 animate-pulse-custom" id="connectionDot"></div>
+                        <span class="text-slate-300" id="connectionText">Connecting...</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <div class="flex-1 overflow-auto p-6">
+                <div class="max-w-7xl mx-auto">
+                    <!-- Dashboard View (Default) -->
+                    <div id="dashboards-view" class="block">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-slate-50">Dashboards</h2>
+                            <button onclick="openDashboardModal()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                                ➕ Nuevo Dashboard
+                            </button>
+                        </div>
+
+                        <!-- Dashboards Grid -->
+                        <div id="dashboards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
+                                <p class="text-slate-400">Cargando dashboards...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Detail View -->
+                    <div id="dashboard-detail-view" class="hidden">
+                        <button onclick="closeDashboardDetail()" class="mb-6 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition">
+                            ← Volver
+                        </button>
+                        <h2 id="dashboard-detail-title" class="text-2xl font-bold text-slate-50 mb-2"></h2>
+                        <p id="dashboard-detail-desc" class="text-slate-300 mb-6"></p>
+
+                        <div class="flex gap-3 mb-6">
+                            <button onclick="openAddSourceModal()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+                                ➕ Agregar Fuente
+                            </button>
+                            <button onclick="saveDashboardOrder()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                                💾 Guardar Orden
+                            </button>
+                        </div>
+
+                        <!-- Sources Container -->
+                        <div id="dashboard-sources" class="space-y-4">
+                            <div class="text-center text-slate-400">Cargando fuentes...</div>
+                        </div>
+                    </div>
+
+                    <!-- Sources Management View -->
+                    <div id="sources-view" class="hidden">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-slate-50">Gestionar Fuentes</h2>
+                            <button onclick="openSourceFormModal()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                                ➕ Nueva Fuente
+                            </button>
+                        </div>
+                        <div id="sources-list" class="space-y-4">
+                            <div class="text-center text-slate-400">Cargando fuentes...</div>
+                        </div>
+                    </div>
+
+                    <!-- Alerts View -->
+                    <div id="alerts-view" class="hidden">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-slate-50">Alertas Activas</h2>
+                            <div class="flex gap-3">
+                                <select id="alert-filter" onchange="filterAlerts()" class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100">
+                                    <option value="">Todas las fuentes</option>
+                                </select>
+                                <button onclick="refreshAlerts()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition">
+                                    🔄 Refrescar
+                                </button>
+                            </div>
+                        </div>
+                        <div id="alerts-list" class="space-y-4">
+                            <div class="text-center text-slate-400">Cargando alertas...</div>
+                        </div>
+                    </div>
+
+                    <!-- Config View (Placeholder) -->
+                    <div id="config-view" class="hidden">
+                        <h2 class="text-2xl font-bold text-slate-50 mb-6">Configuración</h2>
+                        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                            <p class="text-slate-300">Sección de configuración (próximamente)...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Server List -->
-        <div class="server-list divide-y divide-slate-700" id="serverList">
-            <!-- Server list items will be populated here -->
+        <!-- Right Sidebar Navigation -->
+        <div class="w-72 bg-slate-800 border-l border-slate-700 overflow-y-auto">
+            <div class="p-6 space-y-2">
+                <button onclick="switchMainView('dashboards')" class="tab-btn w-full text-left px-4 py-3 rounded-lg font-semibold transition text-slate-100 bg-blue-600 hover:bg-blue-700">
+                    📊 Dashboards
+                </button>
+                <button onclick="switchMainView('sources')" class="tab-btn w-full text-left px-4 py-3 rounded-lg font-semibold transition text-slate-400 hover:text-slate-300">
+                    📁 Fuentes
+                </button>
+                <button onclick="switchMainView('alerts')" class="tab-btn w-full text-left px-4 py-3 rounded-lg font-semibold transition text-slate-400 hover:text-slate-300">
+                    🚨 Alertas
+                </button>
+                <button onclick="switchMainView('config')" class="tab-btn w-full text-left px-4 py-3 rounded-lg font-semibold transition text-slate-400 hover:text-slate-300">
+                    ⚙️ Configuración
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="ml-72 flex-1 flex flex-col min-h-screen bg-slate-900">
-        <div class="flex-1 p-6">
-            <div class="max-w-7xl mx-auto">
-                <!-- Header -->
-                <header class="bg-slate-800 px-6 py-6 rounded-lg shadow-lg mb-6 border border-slate-700">
-                    <div class="flex justify-between items-center">
-                        <h1 class="text-3xl font-bold text-slate-50">GuardIT Dashboard</h1>
-                        <div class="flex items-center gap-3 text-sm">
-                            <div class="w-3 h-3 rounded-full bg-gray-400 animate-pulse-custom" id="connectionDot"></div>
-                            <span class="text-slate-300" id="connectionText">Connecting...</span>
-                        </div>
-                    </div>
-                </header>
-
-                <!-- Controls -->
-                <div class="flex gap-3 mb-6">
-                    <button onclick="refreshManual()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-50 font-semibold rounded-lg transition transform hover:-translate-y-0.5 shadow-md border border-slate-600 active:scale-95">
-                        🔄 Refresh
+    <!-- Modals -->
+    <!-- Add/Edit Dashboard Modal -->
+    <div id="dashboard-modal" class="modal-overlay">
+        <div class="modal-content p-6 rounded-lg w-96">
+            <h3 class="text-xl font-bold text-slate-50 mb-4">Nuevo Dashboard</h3>
+            <form onsubmit="saveDashboard(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-200 mb-2">ID del Dashboard</label>
+                    <input type="text" id="dashboard-id" placeholder="ej: prod-dashboards" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-200 mb-2">Nombre</label>
+                    <input type="text" id="dashboard-name" placeholder="ej: Producción - Backups" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-200 mb-2">Descripción</label>
+                    <textarea id="dashboard-desc" placeholder="Descripción opcional" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" rows="3"></textarea>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                        Guardar
                     </button>
-                    <button onclick="clearAll()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition transform hover:-translate-y-0.5 shadow-md active:scale-95">
-                        🗑️ Clear All
+                    <button type="button" onclick="closeDashboardModal()" class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold rounded-lg transition">
+                        Cancelar
                     </button>
                 </div>
+            </form>
+        </div>
+    </div>
 
-                <!-- Servers Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="serversGrid">
-                    <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
-                        <h2 class="text-2xl font-semibold text-slate-300 mb-2">No backup data yet</h2>
-                        <p class="text-slate-400">Waiting for servers to report their status...</p>
-                    </div>
+    <!-- Add Source to Dashboard Modal -->
+    <div id="add-source-modal" class="modal-overlay">
+        <div class="modal-content p-6 rounded-lg w-96">
+            <h3 class="text-xl font-bold text-slate-50 mb-4">Agregar Fuente al Dashboard</h3>
+            <form onsubmit="addSourceToDashboard(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-200 mb-2">Fuente</label>
+                    <select id="source-select" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" required>
+                        <option value="">Seleccionar fuente...</option>
+                    </select>
                 </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-200 mb-2">Tipo de Widget</label>
+                    <select id="widget-type" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                        <option value="status">Estado Completo</option>
+                    </select>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                        Agregar
+                    </button>
+                    <button type="button" onclick="closeAddSourceModal()" class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold rounded-lg transition">
+                        Cancelar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Source Details Modal -->
+    <div id="source-details-modal" class="modal-overlay">
+        <div class="modal-content p-6 w-full max-w-2xl">
+            <button onclick="closeSourceDetailsModal()" class="mb-4 text-slate-400 hover:text-slate-100">✕ Cerrar</button>
+            <h3 id="source-details-title" class="text-2xl font-bold text-slate-50 mb-4"></h3>
+            <div id="source-details-logs" class="space-y-3 max-h-96 overflow-y-auto">
+                <div class="text-center text-slate-400">Cargando historial...</div>
             </div>
+        </div>
+    </div>
+
+    <!-- New Source Form Modal -->
+    <div id="source-form-modal" class="modal-overlay">
+        <div class="modal-content p-6 rounded-lg w-full max-w-2xl">
+            <h3 class="text-xl font-bold text-slate-50 mb-4">Nueva Fuente</h3>
+            <form onsubmit="saveSource(event)" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Task ID (UID) *</label>
+                        <input type="text" id="source-task-id" placeholder="ej: prod-01-db" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Nombre *</label>
+                        <input type="text" id="source-name" placeholder="ej: Producción DB Backup" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500" required>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Descripción</label>
+                        <textarea id="source-desc" placeholder="Descripción de la fuente" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Tipo</label>
+                        <select id="source-type" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                            <option value="database">Database Backup</option>
+                            <option value="files">Files Backup</option>
+                            <option value="copy">Copy to Storage</option>
+                            <option value="verification">Verification</option>
+                            <option value="archive">Archive</option>
+                            <option value="retention">Retention</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Frecuencia</label>
+                        <select id="source-schedule" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="custom">Custom (CRON)</option>
+                        </select>
+                    </div>
+                    <div id="cron-div" class="md:col-span-2 hidden">
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Expresión CRON</label>
+                        <input type="text" id="source-cron" placeholder="ej: 0 2 * * *" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-semibold text-slate-200 mb-2">Comentarios</label>
+                        <textarea id="source-comments" placeholder="Notas adicionales" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                        Guardar
+                    </button>
+                    <button type="button" onclick="closeSourceFormModal()" class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold rounded-lg transition">
+                        Cancelar
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
         const API_URL = window.location.origin;
         let eventSource = null;
-        let statuses = {};
+        let currentDashboardId = null;
+        let allAlerts = [];
+        let allSources = [];
+        let allDashboards = [];
 
-        // Connect to SSE
+        // ============================================
+        // View Management
+        // ============================================
+        function switchMainView(view) {
+            // Hide all views
+            document.getElementById('dashboards-view').classList.add('hidden');
+            document.getElementById('sources-view').classList.add('hidden');
+            document.getElementById('alerts-view').classList.add('hidden');
+            document.getElementById('config-view').classList.add('hidden');
+            document.getElementById('dashboard-detail-view').classList.add('hidden');
+
+            // Reset all buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'text-slate-100');
+                btn.classList.add('text-slate-400', 'hover:text-slate-300');
+            });
+
+            // Show selected view and highlight button
+            if (view === 'dashboards') {
+                document.getElementById('dashboards-view').classList.remove('hidden');
+                document.querySelectorAll('.tab-btn')[0].classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-slate-100');
+                loadDashboards();
+            } else if (view === 'sources') {
+                document.getElementById('sources-view').classList.remove('hidden');
+                document.querySelectorAll('.tab-btn')[1].classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-slate-100');
+                loadSources();
+            } else if (view === 'alerts') {
+                document.getElementById('alerts-view').classList.remove('hidden');
+                document.querySelectorAll('.tab-btn')[2].classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-slate-100');
+                loadAlerts();
+            } else if (view === 'config') {
+                document.getElementById('config-view').classList.remove('hidden');
+                document.querySelectorAll('.tab-btn')[3].classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-slate-100');
+            }
+        }
+
+        // ============================================
+        // Dashboard Functions
+        // ============================================
+        async function loadDashboards() {
+            try {
+                const response = await fetch(`${API_URL}/api/dashboards`);
+                if (!response.ok) throw new Error('Failed to load dashboards');
+                allDashboards = await response.json();
+                renderDashboards();
+            } catch (error) {
+                console.error('Error loading dashboards:', error);
+                document.getElementById('dashboards-grid').innerHTML = `<div class="col-span-full bg-red-900 text-red-200 p-4 rounded-lg">Error al cargar dashboards</div>`;
+            }
+        }
+
+        function renderDashboards() {
+            const grid = document.getElementById('dashboards-grid');
+
+            if (!allDashboards || allDashboards.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
+                        <p class="text-slate-400 mb-4">No hay dashboards creados</p>
+                        <button onclick="openDashboardModal()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg">
+                            Crear Dashboard
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = allDashboards.map(dash => `
+                <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 hover:border-slate-600 cursor-pointer transition transform hover:scale-105" onclick="openDashboard('${dash.dashboard_id}')">
+                    <h3 class="text-xl font-bold text-slate-50 mb-2">${dash.display_name}</h3>
+                    <p class="text-sm text-slate-400 mb-4">${dash.description || 'Sin descripción'}</p>
+                    <div class="text-xs text-slate-500">
+                        <p>Creado: ${new Date(dash.created_at).toLocaleDateString()}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function openDashboard(dashboardId) {
+            currentDashboardId = dashboardId;
+            const dashboard = allDashboards.find(d => d.dashboard_id === dashboardId);
+
+            document.getElementById('dashboards-view').classList.add('hidden');
+            document.getElementById('dashboard-detail-view').classList.remove('hidden');
+            document.getElementById('dashboard-detail-title').textContent = dashboard.display_name;
+            document.getElementById('dashboard-detail-desc').textContent = dashboard.description || '';
+
+            await loadDashboardSources(dashboardId);
+        }
+
+        function closeDashboardDetail() {
+            document.getElementById('dashboard-detail-view').classList.add('hidden');
+            document.getElementById('dashboards-view').classList.remove('hidden');
+            currentDashboardId = null;
+        }
+
+        async function loadDashboardSources(dashboardId) {
+            try {
+                const response = await fetch(`${API_URL}/api/dashboards/${dashboardId}`);
+                if (!response.ok) throw new Error('Failed to load dashboard');
+                const dashboard = await response.json();
+                renderDashboardSources(dashboard.sources || []);
+            } catch (error) {
+                console.error('Error loading dashboard sources:', error);
+            }
+        }
+
+        function renderDashboardSources(sources) {
+            const container = document.getElementById('dashboard-sources');
+
+            if (!sources || sources.length === 0) {
+                container.innerHTML = `<div class="text-center text-slate-400 py-8">No hay fuentes en este dashboard</div>`;
+                return;
+            }
+
+            container.innerHTML = sources.map((source, idx) => `
+                <div class="draggable-source bg-slate-800 rounded-lg p-4 border border-slate-700 cursor-move" draggable="true" ondragstart="handleDragStart(event, ${idx})" ondragover="handleDragOver(event)" ondrop="handleDrop(event, ${idx})" data-order="${idx}">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <h4 class="font-bold text-slate-50">${source.display_name}</h4>
+                            <p class="text-xs text-slate-400">${source.task_id}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="expandSourceCard(this)" class="text-slate-400 hover:text-slate-100">▼</button>
+                            <button onclick="openSourceDetailsModal('${source.task_id}')" class="text-slate-400 hover:text-slate-100">📋</button>
+                            <button onclick="removeSourceFromDashboard('${source.task_id}')" class="text-red-400 hover:text-red-300">✕</button>
+                        </div>
+                    </div>
+                    <div class="collapsed-content text-xs text-slate-400 mt-2">
+                        <p>Tipo: ${source.task_type}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function expandSourceCard(button) {
+            const card = button.closest('.draggable-source');
+            card.classList.toggle('expanded');
+            button.textContent = card.classList.contains('expanded') ? '▲' : '▼';
+        }
+
+        async function removeSourceFromDashboard(taskId) {
+            if (!confirm('¿Eliminar esta fuente del dashboard?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/dashboards/${currentDashboardId}/sources/${taskId}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) throw new Error('Failed to remove source');
+                await loadDashboardSources(currentDashboardId);
+            } catch (error) {
+                console.error('Error removing source:', error);
+                alert('Error al eliminar la fuente');
+            }
+        }
+
+        function saveDashboardOrder() {
+            // Implementation for drag-drop ordering
+            alert('Orden guardado');
+        }
+
+        async function saveDashboard(event) {
+            event.preventDefault();
+            const dashboardId = document.getElementById('dashboard-id').value;
+            const displayName = document.getElementById('dashboard-name').value;
+            const description = document.getElementById('dashboard-desc').value;
+
+            try {
+                const response = await fetch(`${API_URL}/api/dashboards/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dashboardId, displayName, description })
+                });
+
+                if (!response.ok) throw new Error('Failed to create dashboard');
+
+                closeDashboardModal();
+                document.getElementById('dashboard-id').value = '';
+                document.getElementById('dashboard-name').value = '';
+                document.getElementById('dashboard-desc').value = '';
+                await loadDashboards();
+            } catch (error) {
+                console.error('Error creating dashboard:', error);
+                alert('Error al crear dashboard');
+            }
+        }
+
+        // ============================================
+        // Source Functions
+        // ============================================
+        async function loadSources() {
+            try {
+                const response = await fetch(`${API_URL}/api/tasks`);
+                if (!response.ok) throw new Error('Failed to load sources');
+                allSources = await response.json();
+                renderSources();
+            } catch (error) {
+                console.error('Error loading sources:', error);
+                document.getElementById('sources-list').innerHTML = `<div class="bg-red-900 text-red-200 p-4 rounded-lg">Error al cargar fuentes</div>`;
+            }
+        }
+
+        function renderSources() {
+            const container = document.getElementById('sources-list');
+
+            if (!allSources || allSources.length === 0) {
+                container.innerHTML = `<div class="text-center text-slate-400 py-8">No hay fuentes registradas</div>`;
+                return;
+            }
+
+            container.innerHTML = allSources.map(source => `
+                <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <h4 class="font-bold text-slate-50">${source.display_name}</h4>
+                            <p class="text-xs text-slate-400">${source.task_id}</p>
+                        </div>
+                        <span class="px-2 py-1 rounded text-xs font-semibold ${source.is_active ? 'bg-green-900 text-green-200' : 'bg-gray-800 text-gray-400'}">
+                            ${source.is_active ? 'Activa' : 'Inactiva'}
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">${source.description || 'Sin descripción'}</p>
+                </div>
+            `).join('');
+        }
+
+        async function saveSource(event) {
+            event.preventDefault();
+            const taskData = {
+                taskId: document.getElementById('source-task-id').value,
+                displayName: document.getElementById('source-name').value,
+                description: document.getElementById('source-desc').value,
+                taskType: document.getElementById('source-type').value,
+                schedule: document.getElementById('source-schedule').value,
+                scheduleCron: document.getElementById('source-cron').value || null,
+                comments: document.getElementById('source-comments').value || null
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/api/tasks/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(taskData)
+                });
+
+                if (!response.ok) throw new Error('Failed to create source');
+
+                closeSourceFormModal();
+                await loadSources();
+                // Update source select in add source modal
+                await populateSourceSelect();
+            } catch (error) {
+                console.error('Error creating source:', error);
+                alert('Error al crear fuente');
+            }
+        }
+
+        // ============================================
+        // Alerts Functions
+        // ============================================
+        async function loadAlerts() {
+            try {
+                const response = await fetch(`${API_URL}/api/alerts`);
+                if (!response.ok) throw new Error('Failed to load alerts');
+                allAlerts = await response.json();
+                renderAlerts();
+                populateAlertFilter();
+            } catch (error) {
+                console.error('Error loading alerts:', error);
+                document.getElementById('alerts-list').innerHTML = `<div class="bg-red-900 text-red-200 p-4 rounded-lg">Error al cargar alertas</div>`;
+            }
+        }
+
+        function renderAlerts() {
+            const container = document.getElementById('alerts-list');
+            const filter = document.getElementById('alert-filter').value;
+
+            let filtered = allAlerts;
+            if (filter) {
+                filtered = allAlerts.filter(a => a.task_id === filter);
+            }
+
+            if (!filtered || filtered.length === 0) {
+                container.innerHTML = `<div class="text-center text-slate-400 py-8">No hay alertas activas</div>`;
+                return;
+            }
+
+            // Sort by newest first
+            filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            container.innerHTML = filtered.map(alert => `
+                <div class="bg-slate-800 rounded-lg p-4 border-l-4 border-red-500">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h4 class="font-bold text-slate-50">${alert.display_name}</h4>
+                            <p class="text-xs text-slate-400">${alert.task_id}</p>
+                        </div>
+                        <span class="px-2 py-1 rounded text-xs font-semibold bg-red-900 text-red-200">
+                            ${alert.alert_type}
+                        </span>
+                    </div>
+                    <p class="text-sm text-slate-300 mb-2">${alert.message}</p>
+                    <div class="flex justify-between items-center text-xs text-slate-500">
+                        <span>${new Date(alert.created_at).toLocaleString()}</span>
+                        <div class="flex gap-2">
+                            <button onclick="acknowledgeAlert(${alert.id})" class="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition">
+                                ✓ Reconocer
+                            </button>
+                            <button onclick="resolveAlert(${alert.id})" class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition">
+                                ✕ Resolver
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function populateAlertFilter() {
+            const select = document.getElementById('alert-filter');
+            const options = ['<option value="">Todas las fuentes</option>'];
+
+            const uniqueTasks = [...new Set(allAlerts.map(a => a.task_id))];
+            uniqueTasks.forEach(taskId => {
+                const alert = allAlerts.find(a => a.task_id === taskId);
+                options.push(`<option value="${taskId}">${alert.display_name}</option>`);
+            });
+
+            select.innerHTML = options.join('');
+        }
+
+        function filterAlerts() {
+            renderAlerts();
+        }
+
+        function refreshAlerts() {
+            loadAlerts();
+        }
+
+        async function acknowledgeAlert(alertId) {
+            try {
+                const response = await fetch(`${API_URL}/api/alerts/${alertId}/acknowledge`, {
+                    method: 'POST'
+                });
+                if (!response.ok) throw new Error('Failed to acknowledge alert');
+                await loadAlerts();
+            } catch (error) {
+                console.error('Error acknowledging alert:', error);
+            }
+        }
+
+        async function resolveAlert(alertId) {
+            try {
+                const response = await fetch(`${API_URL}/api/alerts/${alertId}/resolve`, {
+                    method: 'POST'
+                });
+                if (!response.ok) throw new Error('Failed to resolve alert');
+                await loadAlerts();
+            } catch (error) {
+                console.error('Error resolving alert:', error);
+            }
+        }
+
+        // ============================================
+        // Modal Functions
+        // ============================================
+        function openDashboardModal() {
+            document.getElementById('dashboard-modal').classList.add('active');
+        }
+
+        function closeDashboardModal() {
+            document.getElementById('dashboard-modal').classList.remove('active');
+        }
+
+        function openAddSourceModal() {
+            populateSourceSelect();
+            document.getElementById('add-source-modal').classList.add('active');
+        }
+
+        function closeAddSourceModal() {
+            document.getElementById('add-source-modal').classList.remove('active');
+        }
+
+        async function populateSourceSelect() {
+            const select = document.getElementById('source-select');
+            const options = ['<option value="">Seleccionar fuente...</option>'];
+
+            allSources.forEach(source => {
+                options.push(`<option value="${source.task_id}">${source.display_name}</option>`);
+            });
+
+            select.innerHTML = options.join('');
+        }
+
+        async function addSourceToDashboard(event) {
+            event.preventDefault();
+            const taskId = document.getElementById('source-select').value;
+            const widgetType = document.getElementById('widget-type').value;
+
+            try {
+                const response = await fetch(`${API_URL}/api/dashboards/${currentDashboardId}/sources`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId, widgetType })
+                });
+
+                if (!response.ok) throw new Error('Failed to add source');
+
+                closeAddSourceModal();
+                await loadDashboardSources(currentDashboardId);
+            } catch (error) {
+                console.error('Error adding source:', error);
+                alert('Error al agregar fuente');
+            }
+        }
+
+        async function openSourceDetailsModal(taskId) {
+            const source = allSources.find(s => s.task_id === taskId);
+            document.getElementById('source-details-title').textContent = source ? source.display_name : taskId;
+
+            try {
+                const response = await fetch(`${API_URL}/api/status/${taskId}`);
+                const logs = await response.json();
+
+                const logsContainer = document.getElementById('source-details-logs');
+                logsContainer.innerHTML = Array.isArray(logs) && logs.length > 0
+                    ? logs.map(log => `
+                        <div class="bg-slate-700 p-3 rounded text-xs">
+                            <p class="text-slate-300"><strong>${log.status}</strong> - ${new Date(log.timestamp).toLocaleString()}</p>
+                            <p class="text-slate-400">${log.message || 'Sin mensaje'}</p>
+                        </div>
+                    `).join('')
+                    : '<div class="text-slate-400">Sin historial</div>';
+            } catch (error) {
+                console.error('Error loading source details:', error);
+            }
+
+            document.getElementById('source-details-modal').classList.add('active');
+        }
+
+        function closeSourceDetailsModal() {
+            document.getElementById('source-details-modal').classList.remove('active');
+        }
+
+        function openSourceFormModal() {
+            document.getElementById('source-form-modal').classList.add('active');
+        }
+
+        function closeSourceFormModal() {
+            document.getElementById('source-form-modal').classList.remove('active');
+            document.getElementById('source-task-id').value = '';
+            document.getElementById('source-name').value = '';
+            document.getElementById('source-desc').value = '';
+            document.getElementById('source-type').value = 'database';
+            document.getElementById('source-schedule').value = 'daily';
+            document.getElementById('source-cron').value = '';
+            document.getElementById('source-comments').value = '';
+        }
+
+        // Close modals when clicking outside
+        document.addEventListener('click', function(event) {
+            if (event.target.classList.contains('modal-overlay')) {
+                event.target.classList.remove('active');
+            }
+        });
+
+        // ============================================
+        // Drag and Drop
+        // ============================================
+        let draggedIndex = null;
+
+        function handleDragStart(event, index) {
+            draggedIndex = index;
+            event.target.classList.add('dragging');
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.currentTarget.classList.add('drag-over');
+        }
+
+        function handleDrop(event, index) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+            // Implement reordering logic
+        }
+
+        // ============================================
+        // SSE Connection
+        // ============================================
         function connectSSE() {
             if (eventSource) {
                 eventSource.close();
@@ -114,28 +852,32 @@
             eventSource.onmessage = (event) => {
                 const data = JSON.parse(event.data);
 
-                if (data.type === 'connected') {
-                    console.log('SSE connection confirmed');
-                } else if (data.type === 'initial') {
-                    statuses = data.statuses;
-                    renderServers();
-                } else if (data.type === 'update') {
-                    if (data.status === null) {
-                        delete statuses[data.serverId];
-                    } else {
-                        statuses[data.serverId] = data.status;
+                if (data.type === 'update') {
+                    // Refresh relevant data
+                    if (document.getElementById('alerts-view').classList.contains('hidden') === false) {
+                        loadAlerts();
                     }
-                    renderServers();
-                } else if (data.type === 'clear_all') {
-                    statuses = {};
-                    renderServers();
+                    if (currentDashboardId) {
+                        loadDashboardSources(currentDashboardId);
+                    }
+                } else if (data.type === 'alert_notification') {
+                    // Handle error/critical alert notifications
+                    sendNotification(`🚨 ${data.alertType.toUpperCase()}: ${data.taskName}`, {
+                        body: data.message,
+                        icon: '🚨',
+                        tag: `alert-${data.taskId}`,
+                        requireInteraction: true
+                    });
+                    // Auto-refresh alerts if visible
+                    if (document.getElementById('alerts-view').classList.contains('hidden') === false) {
+                        loadAlerts();
+                    }
                 }
             };
 
             eventSource.onerror = (error) => {
                 console.error('SSE connection error:', error);
                 updateConnectionStatus(false);
-                // Reconnect after 3 seconds
                 setTimeout(connectSSE, 3000);
             };
         }
@@ -147,151 +889,47 @@
             if (connected) {
                 dot.classList.remove('bg-gray-400');
                 dot.classList.add('bg-green-500');
-                text.textContent = 'Connected';
+                text.textContent = 'Conectado';
             } else {
                 dot.classList.remove('bg-green-500');
                 dot.classList.add('bg-gray-400');
-                text.textContent = 'Disconnected';
+                text.textContent = 'Desconectado';
             }
         }
 
-        function updateStats() {
-            const serverCount = Object.keys(statuses).length;
-            const activeBackups = Object.values(statuses).filter(s => s.status === 'running').length;
-
-            document.getElementById('serverCount').textContent = `${serverCount} server${serverCount !== 1 ? 's' : ''}`;
-            document.getElementById('activeBackups').textContent = `${activeBackups} active`;
-        }
-
-        function renderSidebar() {
-            const serverList = document.getElementById('serverList');
-
-            if (Object.keys(statuses).length === 0) {
-                serverList.innerHTML = `
-                    <div class="px-6 py-8 text-center text-slate-400 text-sm">
-                        No servers yet
-                    </div>
-                `;
-                return;
-            }
-
-            const sortedServers = Object.entries(statuses).sort((a, b) => {
-                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
-                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
-            });
-
-            serverList.innerHTML = sortedServers.map(([serverId, status]) => `
-                <div class="px-6 py-4 cursor-pointer transition hover:bg-slate-700 border-l-4 status-border-${status.status}" data-server="${serverId}" onclick="scrollToServer('${serverId}')">
-                    <div class="flex justify-between items-center">
-                        <div class="text-sm font-medium text-slate-100 truncate" title="${serverId}">${serverId}</div>
-                        <div class="w-2.5 h-2.5 rounded-full status-dot-${status.status} flex-shrink-0 ${['running', 'error', 'failed'].includes(status.status) ? 'animate' : ''}"></div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function scrollToServer(serverId) {
-            const serverCard = document.querySelector(`[data-server-id="${serverId}"]`);
-            if (serverCard) {
-                serverCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                serverCard.style.transform = 'scale(1.02)';
-                setTimeout(() => {
-                    serverCard.style.transform = '';
-                }, 500);
+        // ============================================
+        // Browser Notifications
+        // ============================================
+        function requestNotificationPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
             }
         }
 
-        function renderServers() {
-            const grid = document.getElementById('serversGrid');
-
-            // Update sidebar and stats
-            updateStats();
-            renderSidebar();
-
-            if (Object.keys(statuses).length === 0) {
-                grid.innerHTML = `
-                    <div class="col-span-full bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
-                        <h2 class="text-2xl font-semibold text-slate-300 mb-2">No backup data yet</h2>
-                        <p class="text-slate-400">Waiting for servers to report their status...</p>
-                    </div>
-                `;
-                return;
-            }
-
-            const sortedServers = Object.entries(statuses).sort((a, b) => {
-                // Sort by status priority: running > error > warning > completed > no_data
-                const priority = { running: 0, error: 1, failed: 1, warning: 2, completed: 3, no_data: 4 };
-                return (priority[a[1].status] || 5) - (priority[b[1].status] || 5);
-            });
-
-            grid.innerHTML = sortedServers.map(([serverId, status]) => `
-                <div class="bg-slate-800 rounded-lg p-6 border-l-4 status-border-${status.status} shadow-lg hover:shadow-xl transition transform hover:-translate-y-1 relative border border-slate-700" data-server-id="${serverId}">
-                    <button class="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm opacity-0 hover:opacity-100 transition" onclick="deleteServer('${serverId}')" title="Remove">✕</button>
-
-                    <div class="flex justify-between items-start mb-4">
-                        <h3 class="text-lg font-bold text-slate-50 flex-1">${serverId}</h3>
-                        <span class="ml-2 px-3 py-1 rounded-full text-xs font-semibold status-bg-${status.status}">${status.status.replace('_', ' ')}</span>
-                    </div>
-
-                    <p class="text-slate-300 text-sm mb-4 leading-relaxed">${status.message || 'No message'}</p>
-
-                    ${status.progress !== undefined && status.progress !== null ? `
-                        <div class="mb-4">
-                            <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
-                                <div class="bg-blue-500 h-full rounded-full transition-all" style="width: ${status.progress}%"></div>
-                            </div>
-                            <p class="text-xs text-slate-400 mt-2">${status.progress}% complete</p>
-                        </div>
-                    ` : ''}
-
-                    <div class="text-xs text-slate-500 italic">Last update: ${status.lastUpdate || status.timestamp}</div>
-
-                    ${status.data ? `
-                        <div class="mt-4 p-3 bg-slate-700 rounded-lg">
-                            <p class="text-xs font-semibold text-slate-300 mb-2">Additional Data:</p>
-                            <pre class="text-xs text-slate-400 overflow-x-auto">${JSON.stringify(status.data, null, 2)}</pre>
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
-        }
-
-        async function refreshManual() {
-            try {
-                const response = await fetch(`${API_URL}/api/status`);
-                statuses = await response.json();
-                renderServers();
-            } catch (error) {
-                console.error('Error refreshing:', error);
+        function sendNotification(title, options = {}) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, options);
             }
         }
 
-        async function deleteServer(serverId) {
-            if (confirm(`Remove ${serverId} from the dashboard?`)) {
-                try {
-                    await fetch(`${API_URL}/api/status/${serverId}`, {
-                        method: 'DELETE'
-                    });
-                } catch (error) {
-                    console.error('Error deleting server:', error);
+        // ============================================
+        // Initialize
+        // ============================================
+        document.addEventListener('DOMContentLoaded', function() {
+            requestNotificationPermission();
+            connectSSE();
+            switchMainView('dashboards');
+
+            // Handle schedule change
+            document.getElementById('source-schedule')?.addEventListener('change', function() {
+                const cronDiv = document.getElementById('cron-div');
+                if (this.value === 'custom') {
+                    cronDiv.classList.remove('hidden');
+                } else {
+                    cronDiv.classList.add('hidden');
                 }
-            }
-        }
-
-        async function clearAll() {
-            if (confirm('Clear all backup statuses?')) {
-                try {
-                    await fetch(`${API_URL}/api/status`, {
-                        method: 'DELETE'
-                    });
-                } catch (error) {
-                    console.error('Error clearing all:', error);
-                }
-            }
-        }
-
-        // Connect on page load
-        connectSSE();
+            });
+        });
     </script>
 </body>
 </html>
