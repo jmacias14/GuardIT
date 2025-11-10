@@ -15,8 +15,10 @@ const initDB = async () => {
                 last_seen TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id)
         `);
         console.log('✓ Servers table created');
 
@@ -33,11 +35,19 @@ const initDB = async () => {
                 last_seen TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_backup_tasks_task_id ON backup_tasks(task_id);
-            CREATE INDEX IF NOT EXISTS idx_backup_tasks_server_id ON backup_tasks(server_id);
-            CREATE INDEX IF NOT EXISTS idx_backup_tasks_task_type ON backup_tasks(task_type);
-            CREATE INDEX IF NOT EXISTS idx_backup_tasks_is_active ON backup_tasks(is_active);
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_backup_tasks_task_id ON backup_tasks(task_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_backup_tasks_server_id ON backup_tasks(server_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_backup_tasks_task_type ON backup_tasks(task_type)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_backup_tasks_is_active ON backup_tasks(is_active)
         `);
         console.log('✓ Backup tasks table created');
 
@@ -52,9 +62,13 @@ const initDB = async () => {
                 data JSONB,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (task_id) REFERENCES backup_tasks(task_id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_status_history_task_id ON status_history(task_id);
-            CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON status_history(timestamp);
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_status_history_task_id ON status_history(task_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON status_history(timestamp)
         `);
         console.log('✓ Status history table created');
 
@@ -72,9 +86,13 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(task_id, date),
                 FOREIGN KEY (task_id) REFERENCES backup_tasks(task_id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_daily_metrics_task_id ON daily_metrics(task_id);
-            CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date);
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_daily_metrics_task_id ON daily_metrics(task_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date)
         `);
         console.log('✓ Daily metrics table created');
 
