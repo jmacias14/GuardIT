@@ -1,21 +1,29 @@
-# GuardIT Server Registration Guide
+# GuardIT Backup Task Registration Guide
 
-This guide explains how to register backup servers with GuardIT and send status updates.
+This guide explains how to register backup tasks with GuardIT and send status updates.
 
-## Manual Server Registration via API
+## Task-Based Architecture
 
-### 1. Register a New Server
+GuardIT uses a **task-based** system where each backup script is registered with a unique semantic identifier (task ID). This allows you to:
+- Monitor multiple backup tasks per server
+- Group tasks by type (database, file copy, verification, etc.)
+- Track individual task status independently
+- Organize your backup ecosystem flexibly
 
-Send a POST request to `/api/servers/register`:
+## Manual Task Registration via API
+
+### 1. Register a New Backup Task
+
+Send a POST request to `/api/tasks/register`:
 
 ```bash
-curl -X POST http://localhost:3000/api/servers/register \
+curl -X POST http://localhost:3000/api/tasks/register \
   -H "Content-Type: application/json" \
   -d '{
-    "serverId": "prod-server-01",
-    "displayName": "Production Server 1",
-    "ipAddress": "192.168.1.100",
-    "description": "Main backup server"
+    "taskId": "prod-01-db",
+    "displayName": "Production Server 1 - Database Backup",
+    "taskType": "database",
+    "description": "Daily SQL Server full backup"
   }'
 ```
 
@@ -23,10 +31,11 @@ curl -X POST http://localhost:3000/api/servers/register \
 ```json
 {
   "id": 1,
-  "server_id": "prod-server-01",
-  "display_name": "Production Server 1",
-  "description": "Main backup server",
-  "ip_address": "192.168.1.100",
+  "task_id": "prod-01-db",
+  "display_name": "Production Server 1 - Database Backup",
+  "description": "Daily SQL Server full backup",
+  "task_type": "database",
+  "server_id": null,
   "is_active": true,
   "last_seen": null,
   "created_at": "2025-11-09T10:30:00Z",
@@ -36,10 +45,10 @@ curl -X POST http://localhost:3000/api/servers/register \
 
 ### 2. Send Status Updates
 
-Once registered, the server can send status updates:
+Once registered, your script can send status updates:
 
 ```bash
-curl -X POST http://localhost:3000/api/status/prod-server-01 \
+curl -X POST http://localhost:3000/api/status/prod-01-db \
   -H "Content-Type: application/json" \
   -d '{
     "status": "running",
@@ -49,17 +58,17 @@ curl -X POST http://localhost:3000/api/status/prod-server-01 \
 ```
 
 **Supported Status Values:**
-- `running` - Backup is in progress
-- `completed` - Backup completed successfully
-- `failed` - Backup failed
+- `running` - Task is in progress
+- `completed` - Task completed successfully
+- `failed` - Task failed
 - `error` - An error occurred
 - `warning` - Warning condition
 - `unknown` - Unknown status
 
-### 3. Get All Registered Servers
+### 3. Get All Registered Tasks
 
 ```bash
-curl http://localhost:3000/api/servers
+curl http://localhost:3000/api/tasks
 ```
 
 **Response:**
@@ -67,82 +76,117 @@ curl http://localhost:3000/api/servers
 [
   {
     "id": 1,
-    "server_id": "prod-server-01",
-    "display_name": "Production Server 1",
-    "description": "Main backup server",
-    "ip_address": "192.168.1.100",
+    "task_id": "prod-01-db",
+    "display_name": "Production Server 1 - Database Backup",
+    "task_type": "database",
+    "server_id": null,
     "is_active": true,
     "last_seen": "2025-11-09T10:35:00Z",
     "created_at": "2025-11-09T10:30:00Z",
     "updated_at": "2025-11-09T10:30:00Z"
+  },
+  {
+    "id": 2,
+    "task_id": "prod-01-copy",
+    "display_name": "Production Server 1 - Copy to NAS",
+    "task_type": "copy",
+    "server_id": null,
+    "is_active": true,
+    "last_seen": "2025-11-09T10:40:00Z",
+    "created_at": "2025-11-09T10:32:00Z",
+    "updated_at": "2025-11-09T10:32:00Z"
   }
 ]
 ```
 
-### 4. Get Specific Server Details
+### 4. Get Tasks by Type
 
 ```bash
-curl http://localhost:3000/api/servers/prod-server-01
+curl http://localhost:3000/api/tasks/type/database
 ```
 
-### 5. Update Server Information
+Returns all tasks with `task_type = "database"`.
+
+### 5. Get Specific Task Details
 
 ```bash
-curl -X PUT http://localhost:3000/api/servers/prod-server-01 \
+curl http://localhost:3000/api/tasks/prod-01-db
+```
+
+### 6. Update Task Information
+
+```bash
+curl -X PUT http://localhost:3000/api/tasks/prod-01-db \
   -H "Content-Type: application/json" \
   -d '{
-    "displayName": "Production Server 1 - Updated",
-    "description": "Main backup server - Updated",
+    "displayName": "Production Server 1 - Database Backup (Updated)",
+    "description": "Daily SQL Server full backup with compression",
     "isActive": true
   }'
 ```
 
-### 6. Delete a Server
+### 7. Delete a Task
 
 ```bash
-curl -X DELETE http://localhost:3000/api/servers/prod-server-01
+curl -X DELETE http://localhost:3000/api/tasks/prod-01-db
 ```
 
 ## PowerShell Client Script
 
 A PowerShell script is provided to simplify registration and status updates.
 
-### Register a Server
+### Register a Task
 
 ```powershell
-# Navigate to the scripts directory
 cd .\scripts\
 
-# Register a new server
+# Register a database backup task
 .\guardit-client.ps1 -Action Register `
-  -ServerID "prod-server-01" `
-  -DisplayName "Production Server 1" `
-  -Description "Main backup server" `
+  -TaskID "prod-01-db" `
+  -DisplayName "Production Server 1 - Database Backup" `
+  -TaskType "database" `
+  -Description "Daily SQL Server full backup" `
+  -GuardITURL "http://guardit-server:3000"
+
+# Register a copy task
+.\guardit-client.ps1 -Action Register `
+  -TaskID "prod-01-copy" `
+  -DisplayName "Production Server 1 - Copy to NAS" `
+  -TaskType "copy" `
+  -Description "Copy backup to NAS storage" `
   -GuardITURL "http://guardit-server:3000"
 ```
 
 ### Send Status Updates
 
 ```powershell
-# Send a status update during backup
+# Task starting
 .\guardit-client.ps1 -Action Status `
-  -ServerID "prod-server-01" `
+  -TaskID "prod-01-db" `
+  -Status "running" `
+  -Message "Database backup starting..." `
+  -Progress 0 `
+  -GuardITURL "http://guardit-server:3000"
+
+# Task in progress
+.\guardit-client.ps1 -Action Status `
+  -TaskID "prod-01-db" `
   -Status "running" `
   -Message "Backup in progress - 45% complete" `
   -Progress 45 `
   -GuardITURL "http://guardit-server:3000"
 
-# Backup completed
+# Task completed
 .\guardit-client.ps1 -Action Status `
-  -ServerID "prod-server-01" `
+  -TaskID "prod-01-db" `
   -Status "completed" `
-  -Message "Backup completed successfully" `
+  -Message "Database backup completed successfully" `
   -Progress 100 `
   -GuardITURL "http://guardit-server:3000"
 
-# Backup failed
+# Task failed
 .\guardit-client.ps1 -Action Status `
-  -ServerID "prod-server-01" `
+  -TaskID "prod-01-db" `
   -Status "failed" `
   -Message "Backup failed: insufficient disk space" `
   -Progress 30 `
@@ -154,110 +198,222 @@ cd .\scripts\
 ### Example: Windows Backup Script Integration
 
 ```powershell
-# Include the GuardIT client functions
-. "C:\GuardIT\scripts\guardit-client.ps1"
+# backup-script.ps1
+
+# Configuration - Set these at the top of your script
+$TASK_ID = "prod-01-db"
+$GUARDIT_URL = "http://guardit-server:3000"
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Source the GuardIT client functions
+. "$SCRIPT_DIR\guardit-client.ps1"
 
 # Your backup logic here
 try {
-    # Start backup
-    Send-StatusUpdate -ServerID "prod-server-01" `
+    # Notify that backup is starting
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_ID `
         -Status "running" `
         -Message "Starting backup..." `
         -Progress 0 `
-        -GuardITURL "http://guardit-server:3000"
+        -GuardITURL $GUARDIT_URL
 
-    # Perform backup operations
-    $backupSize = 0
-    # ... your backup code ...
+    # Perform your backup operations
+    Write-Host "Performing backup..."
+    Start-Sleep -Seconds 2  # Replace with actual backup code
 
     # Report progress
-    Send-StatusUpdate -ServerID "prod-server-01" `
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_ID `
         -Status "running" `
-        -Message "Backup in progress..." `
+        -Message "Backup in progress - 50% complete" `
         -Progress 50 `
-        -GuardITURL "http://guardit-server:3000"
+        -GuardITURL $GUARDIT_URL
 
-    # Finish backup
-    Send-StatusUpdate -ServerID "prod-server-01" `
+    # Continue backup...
+    Start-Sleep -Seconds 2
+
+    # Report completion
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_ID `
         -Status "completed" `
-        -Message "Backup completed: $backupSize GB" `
+        -Message "Backup completed successfully" `
         -Progress 100 `
-        -GuardITURL "http://guardit-server:3000"
+        -GuardITURL $GUARDIT_URL
+
+    Write-Host "✓ Backup completed"
 }
 catch {
-    Send-StatusUpdate -ServerID "prod-server-01" `
+    Write-Error "Backup failed: $_"
+
+    # Report failure to GuardIT
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_ID `
         -Status "failed" `
         -Message "Backup failed: $_" `
         -Progress 0 `
-        -GuardITURL "http://guardit-server:3000"
+        -GuardITURL $GUARDIT_URL
+
     exit 1
 }
 ```
 
-## Server Registration Best Practices
+### Multiple Tasks in One Script
 
-1. **Unique Server IDs**: Use descriptive, unique server identifiers (e.g., `prod-db-01`, `backup-nas-01`)
+If your script handles multiple backup tasks, you can send updates for each:
 
-2. **IP Address**: Register the static IP address from which the server will send updates. This helps with network security and tracking.
+```powershell
+# Multi-task backup script
+$GUARDIT_URL = "http://guardit-server:3000"
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-3. **Display Names**: Use human-readable display names that will be shown in the GuardIT dashboard.
+# Task 1: Database Backup
+$TASK_DB = "prod-01-db"
 
-4. **Status Updates**: Send status updates at regular intervals and especially at state transitions (started, progress updates, completed, failed).
+# Task 2: Copy to NAS
+$TASK_COPY = "prod-01-copy"
 
-5. **Error Handling**: Always report failures with descriptive error messages for troubleshooting.
+try {
+    # ===== Database Backup =====
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_DB `
+        -Status "running" `
+        -Message "Starting database backup..." `
+        -Progress 0 `
+        -GuardITURL $GUARDIT_URL
+
+    # ... perform database backup ...
+
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_DB `
+        -Status "completed" `
+        -Message "Database backup completed" `
+        -Progress 100 `
+        -GuardITURL $GUARDIT_URL
+
+    # ===== Copy to NAS =====
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_COPY `
+        -Status "running" `
+        -Message "Starting copy to NAS..." `
+        -Progress 0 `
+        -GuardITURL $GUARDIT_URL
+
+    # ... perform copy operation ...
+
+    & "$SCRIPT_DIR\guardit-client.ps1" -Action Status `
+        -TaskID $TASK_COPY `
+        -Status "completed" `
+        -Message "Copy to NAS completed" `
+        -Progress 100 `
+        -GuardITURL $GUARDIT_URL
+
+    Write-Host "✓ All backup tasks completed"
+}
+catch {
+    Write-Error "Backup failed: $_"
+    exit 1
+}
+```
+
+## Task Naming Conventions
+
+For consistency and clarity, use semantic task IDs:
+
+```
+Format: [SERVER]-[TYPE]-[NUMBER]
+
+Examples:
+  prod-01-db          → Production Server 1 - Database Backup
+  prod-01-copy        → Production Server 1 - Copy to NAS
+  prod-02-db          → Production Server 2 - Database Backup
+  prod-02-files       → Production Server 2 - File Backup
+
+Alternative format: [TYPE][NUMBER]
+  DB001              → Database Backup Task 1
+  COPY001            → Copy Task 1
+  VERIFY001          → Verification Task 1
+```
+
+## Task Types
+
+Common task types for organizing your backups:
+
+- `database` - Database backups (SQL Server, MySQL, PostgreSQL, etc.)
+- `files` - File/folder backups
+- `copy` - Copying backups to external storage (NAS, cloud, etc.)
+- `verification` - Backup verification tasks
+- `archive` - Archive/compression tasks
+- `retention` - Data retention/cleanup tasks
+
+## REST API Endpoints Reference
+
+### Task Management
+- `GET /api/tasks` - Get all tasks
+- `GET /api/tasks/:taskId` - Get specific task
+- `GET /api/tasks/type/:taskType` - Get tasks by type
+- `POST /api/tasks/register` - Register new task
+- `PUT /api/tasks/:taskId` - Update task
+- `DELETE /api/tasks/:taskId` - Delete task
+
+### Status Updates
+- `POST /api/status/:taskId` - Send status update
+- `GET /api/status/:taskId` - Get current status
+- `GET /api/status` - Get all statuses
+- `DELETE /api/status/:taskId` - Clear status
+
+### History & Metrics
+- `GET /api/history/:taskId` - Get task history (paginated)
+- `GET /api/history/:taskId/range` - Get history by date range
+- `GET /api/stats/:taskId` - Get task statistics
+- `GET /api/summary/:taskId/today` - Get today's summary
+- `GET /api/metrics/:taskId/daily` - Get daily metrics (last 30 days)
 
 ## Database Schema
 
-The registration system uses the following database tables:
+### backup_tasks Table
+- `task_id` VARCHAR(255) UNIQUE - Semantic task identifier
+- `display_name` VARCHAR(255) - Human-readable display name
+- `description` TEXT - Task description
+- `task_type` VARCHAR(50) - Task categorization
+- `server_id` VARCHAR(255) - Optional reference to server
+- `is_active` BOOLEAN - Enable/disable task
+- `last_seen` TIMESTAMP - When task last reported
+- `created_at`, `updated_at` - Timestamps
 
-### Servers Table
-- `id` - Primary key
-- `server_id` - Unique server identifier (VARCHAR)
-- `display_name` - Human-readable server name
-- `description` - Optional server description
-- `ip_address` - Registered IP address for validation
-- `is_active` - Boolean flag to enable/disable server
-- `last_seen` - Timestamp of last status update
-- `created_at` - Registration timestamp
-- `updated_at` - Last modification timestamp
+### status_history Table
+- `task_id` VARCHAR(255) - References backup_tasks.task_id
+- `status` VARCHAR(50) - Current status
+- `message` TEXT - Status message
+- `progress` INTEGER - Progress 0-100
+- `data` JSONB - Optional JSON data
+- `timestamp` TIMESTAMP - When status was recorded
 
-### Status History Table
-- `id` - Primary key
-- `server_id` - References servers.server_id
-- `status` - Current backup status
-- `message` - Status message
-- `progress` - Progress percentage (0-100)
-- `data` - Optional JSON data
-- `timestamp` - When the status was recorded
-- `last_update` - Last update timestamp
-
-### Daily Metrics Table
-- `id` - Primary key
-- `server_id` - References servers.server_id
-- `date` - Date of metrics
-- `total_runs` - Total backup runs that day
-- `successful_runs` - Successful backups that day
-- `failed_runs` - Failed backups that day
-- `avg_duration` - Average backup duration
-- `uptime_percentage` - Daily uptime percentage
-- `created_at` - Metrics creation timestamp
+### daily_metrics Table
+- `task_id` VARCHAR(255) - References backup_tasks.task_id
+- `date` DATE - Date of metrics
+- `total_runs` INTEGER - Total task executions
+- `successful_runs` INTEGER - Successful executions
+- `failed_runs` INTEGER - Failed executions
+- `avg_duration` INTERVAL - Average execution time
+- `uptime_percentage` DECIMAL - Daily uptime %
 
 ## Troubleshooting
 
-### Server Not Found Error
+### Task Not Found Error
 ```json
-{"error": "Server not registered"}
+{"error": "Task not registered"}
 ```
-Make sure you register the server first using the `/api/servers/register` endpoint.
+Make sure you register the task first using the `/api/tasks/register` endpoint.
 
-### Server Not Active Error
+### Task Not Active Error
 ```json
-{"error": "Server is not active"}
+{"error": "Task is not active"}
 ```
-The server is registered but has `is_active` set to false. Update it with the PUT endpoint to reactivate.
+The task is registered but has `is_active` set to false. Update it with the PUT endpoint to reactivate.
 
-### IP Address Already Registered Error
+### Task ID Already Exists Error
 ```json
-{"error": "IP address already registered for another server"}
+{"error": "Task ID already exists"}
 ```
-Each IP can only be registered once. Use a unique IP for each server or contact the admin to update the registration.
+Each task ID must be unique. Use a different task ID or delete the existing task first.

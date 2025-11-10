@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { StatusHistory, Server, DailyMetrics } = require('./db/models');
+const { StatusHistory, BackupTask, DailyMetrics } = require('./db/models');
 
 const app = express();
 const PORT = 3000;
@@ -64,11 +64,10 @@ function broadcastUpdate(serverId, status) {
     });
 }
 
-// Receive status updates from backup scripts
-app.post('/api/status/:serverId', async (req, res) => {
-    const { serverId } = req.params;
+// Receive status updates from backup tasks
+app.post('/api/status/:taskId', async (req, res) => {
+    const { taskId } = req.params;
     const { status, message, progress, data } = req.body;
-    const clientIp = req.ip || req.connection.remoteAddress;
 
     const statusUpdate = {
         status: status || 'unknown',
@@ -79,54 +78,40 @@ app.post('/api/status/:serverId', async (req, res) => {
         lastUpdate: new Date().toLocaleString()
     };
 
-    // Validar servidor registrado si BD está lista
+    // Validar tarea registrada si BD está lista
     if (dbReady) {
         try {
-            const server = await Server.getById(serverId);
-            if (!server) {
-                console.warn(`[${serverId}] Status update from unregistered server from ${clientIp}`);
-                return res.status(404).json({ error: 'Server not registered' });
+            const task = await BackupTask.getById(taskId);
+            if (!task) {
+                console.warn(`[${taskId}] Status update from unregistered task`);
+                return res.status(404).json({ error: 'Task not registered' });
             }
 
-            if (!server.is_active) {
-                console.warn(`[${serverId}] Status update from inactive server from ${clientIp}`);
-                return res.status(403).json({ error: 'Server is not active' });
-            }
-
-            // Validar IP si está configurada
-            if (server.ip_address && server.ip_address !== clientIp) {
-                // Permitir IPv6 loopback y IPv4 loopback para testing
-                const isLoopback = clientIp === '::1' || clientIp === '127.0.0.1' ||
-                                 clientIp === '::ffff:127.0.0.1';
-                const registeredIp = server.ip_address;
-
-                if (!isLoopback && registeredIp !== clientIp) {
-                    console.warn(`[${serverId}] IP mismatch: registered ${registeredIp}, received from ${clientIp}`);
-                    // Log pero permitir - puede haber NAT u otros problemas de red
-                    console.warn(`⚠️  Allowing due to potential network configuration`);
-                }
+            if (!task.is_active) {
+                console.warn(`[${taskId}] Status update from inactive task`);
+                return res.status(403).json({ error: 'Task is not active' });
             }
 
             // Actualizar last_seen
-            await Server.updateLastSeen(serverId);
+            await BackupTask.updateLastSeen(taskId);
         } catch (error) {
-            console.error('Error validating server:', error);
-            return res.status(500).json({ error: 'Server validation error' });
+            console.error('Error validating task:', error);
+            return res.status(500).json({ error: 'Task validation error' });
         }
     }
 
-    backupStatuses[serverId] = statusUpdate;
+    backupStatuses[taskId] = statusUpdate;
 
-    console.log(`[${serverId}] ${status}: ${message}`);
+    console.log(`[${taskId}] ${status}: ${message}`);
 
     // Guardar en BD si está lista
     if (dbReady) {
         try {
-            await StatusHistory.add(serverId, status, message, progress, data, new Date());
+            await StatusHistory.add(taskId, status, message, progress, data);
 
             // Actualizar métricas diarias
             if (status === 'completed' || status === 'failed' || status === 'error') {
-                await DailyMetrics.updateDaily(serverId);
+                await DailyMetrics.updateDaily(taskId);
             }
         } catch (error) {
             console.error('Error saving to database:', error);
@@ -134,15 +119,15 @@ app.post('/api/status/:serverId', async (req, res) => {
     }
 
     // Broadcast to all connected browsers via SSE
-    broadcastUpdate(serverId, statusUpdate);
+    broadcastUpdate(taskId, statusUpdate);
 
     res.json({ success: true });
 });
 
-// Get status of a specific server
-app.get('/api/status/:serverId', (req, res) => {
-    const { serverId } = req.params;
-    res.json(backupStatuses[serverId] || { status: 'no_data' });
+// Get status of a specific task
+app.get('/api/status/:taskId', (req, res) => {
+    const { taskId } = req.params;
+    res.json(backupStatuses[taskId] || { status: 'no_data' });
 });
 
 // Get all statuses
@@ -150,14 +135,14 @@ app.get('/api/status', (req, res) => {
     res.json(backupStatuses);
 });
 
-// Clear status for a server
-app.delete('/api/status/:serverId', (req, res) => {
-    const { serverId } = req.params;
-    delete backupStatuses[serverId];
-    
+// Clear status for a task
+app.delete('/api/status/:taskId', (req, res) => {
+    const { taskId } = req.params;
+    delete backupStatuses[taskId];
+
     // Broadcast deletion
-    broadcastUpdate(serverId, null);
-    
+    broadcastUpdate(taskId, null);
+
     res.json({ success: true });
 });
 
@@ -188,16 +173,16 @@ app.get('/api/health', (req, res) => {
 // History & Statistics Endpoints
 // ============================================
 
-// Get history for a specific server
-app.get('/api/history/:serverId', async (req, res) => {
-    const { serverId } = req.params;
+// Get history for a specific task
+app.get('/api/history/:taskId', async (req, res) => {
+    const { taskId } = req.params;
     const { limit = 100, offset = 0 } = req.query;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const history = await StatusHistory.getByServerId(serverId, limit, offset);
+        const history = await StatusHistory.getByTaskId(taskId, limit, offset);
         res.json(history);
     } catch (error) {
         console.error('Error fetching history:', error);
@@ -206,15 +191,15 @@ app.get('/api/history/:serverId', async (req, res) => {
 });
 
 // Get history between dates
-app.get('/api/history/:serverId/range', async (req, res) => {
-    const { serverId } = req.params;
+app.get('/api/history/:taskId/range', async (req, res) => {
+    const { taskId } = req.params;
     const { startDate, endDate } = req.query;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const history = await StatusHistory.getByDateRange(serverId, startDate, endDate);
+        const history = await StatusHistory.getByDateRange(taskId, startDate, endDate);
         res.json(history);
     } catch (error) {
         console.error('Error fetching date range history:', error);
@@ -222,15 +207,15 @@ app.get('/api/history/:serverId/range', async (req, res) => {
     }
 });
 
-// Get server statistics
-app.get('/api/stats/:serverId', async (req, res) => {
-    const { serverId } = req.params;
+// Get task statistics
+app.get('/api/stats/:taskId', async (req, res) => {
+    const { taskId } = req.params;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const stats = await StatusHistory.getStats(serverId);
+        const stats = await StatusHistory.getStats(taskId);
         res.json(stats);
     } catch (error) {
         console.error('Error fetching stats:', error);
@@ -238,15 +223,15 @@ app.get('/api/stats/:serverId', async (req, res) => {
     }
 });
 
-// Get today's summary for a server
-app.get('/api/summary/:serverId/today', async (req, res) => {
-    const { serverId } = req.params;
+// Get today's summary for a task
+app.get('/api/summary/:taskId/today', async (req, res) => {
+    const { taskId } = req.params;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const summary = await StatusHistory.getTodaysSummary(serverId);
+        const summary = await StatusHistory.getTodaysSummary(taskId);
         res.json(summary);
     } catch (error) {
         console.error('Error fetching today summary:', error);
@@ -255,14 +240,14 @@ app.get('/api/summary/:serverId/today', async (req, res) => {
 });
 
 // Get daily metrics
-app.get('/api/metrics/:serverId/daily', async (req, res) => {
-    const { serverId } = req.params;
+app.get('/api/metrics/:taskId/daily', async (req, res) => {
+    const { taskId } = req.params;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const metrics = await DailyMetrics.getLastMonth(serverId);
+        const metrics = await DailyMetrics.getLastMonth(taskId);
         res.json(metrics);
     } catch (error) {
         console.error('Error fetching daily metrics:', error);
@@ -270,47 +255,65 @@ app.get('/api/metrics/:serverId/daily', async (req, res) => {
     }
 });
 
-// Get list of all servers
-app.get('/api/servers', async (req, res) => {
+// ============================================
+// Backup Tasks Management
+// ============================================
+
+// Get list of all tasks
+app.get('/api/tasks', async (req, res) => {
     try {
         if (!dbReady) {
-            // Si BD no está lista, devolver servidores del estado actual
-            return res.json(Object.keys(backupStatuses).map(id => ({ server_id: id })));
+            return res.json(Object.keys(backupStatuses).map(id => ({ task_id: id })));
         }
-        const servers = await Server.getAll();
-        res.json(servers);
+        const tasks = await BackupTask.getAll();
+        res.json(tasks);
     } catch (error) {
-        console.error('Error fetching servers:', error);
+        console.error('Error fetching tasks:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Get specific server
-app.get('/api/servers/:serverId', async (req, res) => {
-    const { serverId } = req.params;
+// Get tasks by type
+app.get('/api/tasks/type/:taskType', async (req, res) => {
+    const { taskType } = req.params;
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
-        const server = await Server.getById(serverId);
-        if (!server) {
-            return res.status(404).json({ error: 'Server not found' });
-        }
-        res.json(server);
+        const tasks = await BackupTask.getByType(taskType);
+        res.json(tasks);
     } catch (error) {
-        console.error('Error fetching server:', error);
+        console.error('Error fetching tasks by type:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Register a new server
-app.post('/api/servers/register', async (req, res) => {
-    const { serverId, displayName, ipAddress, description } = req.body;
+// Get specific task
+app.get('/api/tasks/:taskId', async (req, res) => {
+    const { taskId } = req.params;
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const task = await BackupTask.getById(taskId);
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        res.json(task);
+    } catch (error) {
+        console.error('Error fetching task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Register a new backup task
+app.post('/api/tasks/register', async (req, res) => {
+    const { taskId, displayName, taskType, description, serverId } = req.body;
 
     // Validación de parámetros requeridos
-    if (!serverId || !displayName || !ipAddress) {
+    if (!taskId || !displayName) {
         return res.status(400).json({
-            error: 'Missing required fields: serverId, displayName, ipAddress'
+            error: 'Missing required fields: taskId, displayName'
         });
     }
 
@@ -319,75 +322,67 @@ app.post('/api/servers/register', async (req, res) => {
             return res.status(503).json({ error: 'Database not ready' });
         }
 
-        // Verificar si el servidor ya existe
-        const existing = await Server.getById(serverId);
+        // Verificar si la tarea ya existe
+        const existing = await BackupTask.getById(taskId);
         if (existing) {
-            return res.status(409).json({ error: 'Server ID already exists' });
+            return res.status(409).json({ error: 'Task ID already exists' });
         }
 
-        // Verificar si la IP ya está registrada
-        const existingIp = await Server.getByIp(ipAddress);
-        if (existingIp) {
-            return res.status(409).json({
-                error: 'IP address already registered for another server'
-            });
-        }
-
-        // Registrar nuevo servidor
-        const server = await Server.register(serverId, displayName, ipAddress, description);
-        console.log(`✓ Server registered: ${serverId} (${ipAddress})`);
-        res.status(201).json(server);
+        // Registrar nueva tarea
+        const task = await BackupTask.register(taskId, displayName, taskType, description, serverId);
+        console.log(`✓ Task registered: ${taskId}`);
+        res.status(201).json(task);
     } catch (error) {
-        console.error('Error registering server:', error);
+        console.error('Error registering task:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Update server
-app.put('/api/servers/:serverId', async (req, res) => {
-    const { serverId } = req.params;
-    const { displayName, description, isActive } = req.body;
+// Update task
+app.put('/api/tasks/:taskId', async (req, res) => {
+    const { taskId } = req.params;
+    const { displayName, description, taskType, serverId, isActive } = req.body;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
 
-        const server = await Server.getById(serverId);
-        if (!server) {
-            return res.status(404).json({ error: 'Server not found' });
+        const task = await BackupTask.getById(taskId);
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
         }
 
-        const updated = await Server.update(serverId, { displayName, description, isActive });
-        console.log(`✓ Server updated: ${serverId}`);
+        const updated = await BackupTask.update(taskId, { displayName, description, taskType, serverId, isActive });
+        console.log(`✓ Task updated: ${taskId}`);
         res.json(updated);
     } catch (error) {
-        console.error('Error updating server:', error);
+        console.error('Error updating task:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Delete server
-app.delete('/api/servers/:serverId', async (req, res) => {
-    const { serverId } = req.params;
+// Delete task
+app.delete('/api/tasks/:taskId', async (req, res) => {
+    const { taskId } = req.params;
 
     try {
         if (!dbReady) {
             return res.status(503).json({ error: 'Database not ready' });
         }
 
-        const server = await Server.getById(serverId);
-        if (!server) {
-            return res.status(404).json({ error: 'Server not found' });
+        const task = await BackupTask.getById(taskId);
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
         }
 
-        await Server.delete(serverId);
+        await BackupTask.delete(taskId);
         // También limpiar el estado en memoria
-        delete backupStatuses[serverId];
-        console.log(`✓ Server deleted: ${serverId}`);
-        res.json({ success: true, message: `Server ${serverId} deleted` });
+        delete backupStatuses[taskId];
+        console.log(`✓ Task deleted: ${taskId}`);
+        res.json({ success: true, message: `Task ${taskId} deleted` });
     } catch (error) {
-        console.error('Error deleting server:', error);
+        console.error('Error deleting task:', error);
         res.status(500).json({ error: error.message });
     }
 });
