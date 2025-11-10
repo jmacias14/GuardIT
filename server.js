@@ -68,6 +68,7 @@ function broadcastUpdate(serverId, status) {
 app.post('/api/status/:serverId', async (req, res) => {
     const { serverId } = req.params;
     const { status, message, progress, data } = req.body;
+    const clientIp = req.ip || req.connection.remoteAddress;
 
     const statusUpdate = {
         status: status || 'unknown',
@@ -77,6 +78,42 @@ app.post('/api/status/:serverId', async (req, res) => {
         timestamp: new Date().toISOString(),
         lastUpdate: new Date().toLocaleString()
     };
+
+    // Validar servidor registrado si BD está lista
+    if (dbReady) {
+        try {
+            const server = await Server.getById(serverId);
+            if (!server) {
+                console.warn(`[${serverId}] Status update from unregistered server from ${clientIp}`);
+                return res.status(404).json({ error: 'Server not registered' });
+            }
+
+            if (!server.is_active) {
+                console.warn(`[${serverId}] Status update from inactive server from ${clientIp}`);
+                return res.status(403).json({ error: 'Server is not active' });
+            }
+
+            // Validar IP si está configurada
+            if (server.ip_address && server.ip_address !== clientIp) {
+                // Permitir IPv6 loopback y IPv4 loopback para testing
+                const isLoopback = clientIp === '::1' || clientIp === '127.0.0.1' ||
+                                 clientIp === '::ffff:127.0.0.1';
+                const registeredIp = server.ip_address;
+
+                if (!isLoopback && registeredIp !== clientIp) {
+                    console.warn(`[${serverId}] IP mismatch: registered ${registeredIp}, received from ${clientIp}`);
+                    // Log pero permitir - puede haber NAT u otros problemas de red
+                    console.warn(`⚠️  Allowing due to potential network configuration`);
+                }
+            }
+
+            // Actualizar last_seen
+            await Server.updateLastSeen(serverId);
+        } catch (error) {
+            console.error('Error validating server:', error);
+            return res.status(500).json({ error: 'Server validation error' });
+        }
+    }
 
     backupStatuses[serverId] = statusUpdate;
 
@@ -244,6 +281,113 @@ app.get('/api/servers', async (req, res) => {
         res.json(servers);
     } catch (error) {
         console.error('Error fetching servers:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get specific server
+app.get('/api/servers/:serverId', async (req, res) => {
+    const { serverId } = req.params;
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const server = await Server.getById(serverId);
+        if (!server) {
+            return res.status(404).json({ error: 'Server not found' });
+        }
+        res.json(server);
+    } catch (error) {
+        console.error('Error fetching server:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Register a new server
+app.post('/api/servers/register', async (req, res) => {
+    const { serverId, displayName, ipAddress, description } = req.body;
+
+    // Validación de parámetros requeridos
+    if (!serverId || !displayName || !ipAddress) {
+        return res.status(400).json({
+            error: 'Missing required fields: serverId, displayName, ipAddress'
+        });
+    }
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        // Verificar si el servidor ya existe
+        const existing = await Server.getById(serverId);
+        if (existing) {
+            return res.status(409).json({ error: 'Server ID already exists' });
+        }
+
+        // Verificar si la IP ya está registrada
+        const existingIp = await Server.getByIp(ipAddress);
+        if (existingIp) {
+            return res.status(409).json({
+                error: 'IP address already registered for another server'
+            });
+        }
+
+        // Registrar nuevo servidor
+        const server = await Server.register(serverId, displayName, ipAddress, description);
+        console.log(`✓ Server registered: ${serverId} (${ipAddress})`);
+        res.status(201).json(server);
+    } catch (error) {
+        console.error('Error registering server:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update server
+app.put('/api/servers/:serverId', async (req, res) => {
+    const { serverId } = req.params;
+    const { displayName, description, isActive } = req.body;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const server = await Server.getById(serverId);
+        if (!server) {
+            return res.status(404).json({ error: 'Server not found' });
+        }
+
+        const updated = await Server.update(serverId, { displayName, description, isActive });
+        console.log(`✓ Server updated: ${serverId}`);
+        res.json(updated);
+    } catch (error) {
+        console.error('Error updating server:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete server
+app.delete('/api/servers/:serverId', async (req, res) => {
+    const { serverId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+
+        const server = await Server.getById(serverId);
+        if (!server) {
+            return res.status(404).json({ error: 'Server not found' });
+        }
+
+        await Server.delete(serverId);
+        // También limpiar el estado en memoria
+        delete backupStatuses[serverId];
+        console.log(`✓ Server deleted: ${serverId}`);
+        res.json({ success: true, message: `Server ${serverId} deleted` });
+    } catch (error) {
+        console.error('Error deleting server:', error);
         res.status(500).json({ error: error.message });
     }
 });

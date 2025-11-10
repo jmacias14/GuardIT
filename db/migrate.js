@@ -9,11 +9,16 @@ const initDB = async () => {
             CREATE TABLE IF NOT EXISTS servers (
                 id SERIAL PRIMARY KEY,
                 server_id VARCHAR(255) UNIQUE NOT NULL,
-                display_name VARCHAR(255),
+                display_name VARCHAR(255) NOT NULL,
                 description TEXT,
+                ip_address INET NOT NULL,
+                is_active BOOLEAN DEFAULT true,
+                last_seen TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
+            CREATE INDEX IF NOT EXISTS idx_servers_ip_address ON servers(ip_address);
         `);
         console.log('✓ Servers table created');
 

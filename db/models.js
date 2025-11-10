@@ -30,6 +30,64 @@ const Server = {
         `;
         const result = await pool.query(query, [serverId]);
         return result.rows[0];
+    },
+
+    // Obtener servidor por IP
+    async getByIp(ipAddress) {
+        const query = `
+            SELECT * FROM servers WHERE ip_address = $1;
+        `;
+        const result = await pool.query(query, [ipAddress]);
+        return result.rows[0];
+    },
+
+    // Registrar nuevo servidor
+    async register(serverId, displayName, ipAddress, description = null) {
+        const query = `
+            INSERT INTO servers (server_id, display_name, ip_address, description, is_active)
+            VALUES ($1, $2, $3, $4, true)
+            RETURNING *;
+        `;
+        const result = await pool.query(query, [serverId, displayName, ipAddress, description]);
+        return result.rows[0];
+    },
+
+    // Actualizar servidor
+    async update(serverId, updateData) {
+        const { displayName, description, isActive } = updateData;
+        const query = `
+            UPDATE servers
+            SET display_name = COALESCE($2, display_name),
+                description = COALESCE($3, description),
+                is_active = COALESCE($4, is_active),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE server_id = $1
+            RETURNING *;
+        `;
+        const result = await pool.query(query, [serverId, displayName, description, isActive]);
+        return result.rows[0];
+    },
+
+    // Actualizar last_seen
+    async updateLastSeen(serverId) {
+        const query = `
+            UPDATE servers
+            SET last_seen = CURRENT_TIMESTAMP
+            WHERE server_id = $1
+            RETURNING *;
+        `;
+        const result = await pool.query(query, [serverId]);
+        return result.rows[0];
+    },
+
+    // Eliminar servidor
+    async delete(serverId) {
+        const query = `
+            DELETE FROM servers WHERE server_id = $1
+            RETURNING *;
+        `;
+        const result = await pool.query(query, [serverId]);
+        return result.rows[0];
     }
 };
 
