@@ -266,12 +266,12 @@ const DailyMetrics = {
             INSERT INTO daily_metrics (task_id, date, total_runs, successful_runs, failed_runs)
             SELECT
                 $1,
-                $2,
+                CAST($2 AS DATE),
                 COUNT(*) as total_runs,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_runs,
                 COUNT(CASE WHEN status IN ('failed', 'error') THEN 1 END) as failed_runs
             FROM status_history
-            WHERE task_id = $1 AND DATE(timestamp) = $2
+            WHERE task_id = $1 AND DATE(timestamp) = CAST($2 AS DATE)
             ON CONFLICT (task_id, date) DO UPDATE SET
                 total_runs = EXCLUDED.total_runs,
                 successful_runs = EXCLUDED.successful_runs,
@@ -370,14 +370,21 @@ const Dashboard = {
 const DashboardSource = {
     // Agregar fuente a dashboard
     async add(dashboardId, taskId, widgetType = 'status', widgetConfig = null) {
+        // Get next display order
+        const orderResult = await pool.query(
+            'SELECT COALESCE(MAX(display_order), 0) + 1 as next_order FROM dashboard_sources WHERE dashboard_id = $1',
+            [dashboardId]
+        );
+        const nextOrder = orderResult.rows[0].next_order;
+
         const query = `
             INSERT INTO dashboard_sources (dashboard_id, task_id, widget_type, widget_config, display_order)
-            VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(display_order), 0) + 1 FROM dashboard_sources WHERE dashboard_id = $1))
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (dashboard_id, task_id, widget_type) DO UPDATE
-            SET widget_config = $4, updated_at = CURRENT_TIMESTAMP
+            SET widget_config = $4
             RETURNING *;
         `;
-        const result = await pool.query(query, [dashboardId, taskId, widgetType, widgetConfig ? JSON.stringify(widgetConfig) : null]);
+        const result = await pool.query(query, [dashboardId, taskId, widgetType, widgetConfig ? JSON.stringify(widgetConfig) : null, nextOrder]);
         return result.rows[0];
     },
 
