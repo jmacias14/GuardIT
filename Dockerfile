@@ -17,12 +17,15 @@ COPY . .
 # Build Tailwind CSS
 RUN npm run build:css
 
+# Create startup script
+RUN echo '#!/bin/sh\necho "Waiting for database to be ready..."\nsleep 5\necho "Running database migrations..."\nnode db/migrate.js\necho "Starting GuardIT server..."\nnode server.js' > /app/start.sh && chmod +x /app/start.sh
+
 # Expose port
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/api/health || exit 1
 
-# Start the server
-CMD ["node", "server.js"]
+# Start the server with migration
+CMD ["/app/start.sh"]

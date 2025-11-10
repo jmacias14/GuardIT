@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { StatusHistory, Server, DailyMetrics } = require('./db/models');
 
 const app = express();
 const PORT = 3000;
@@ -13,6 +14,13 @@ let backupStatuses = {};
 
 // SSE clients
 let sseClients = [];
+
+// Flag para saber si la DB está lista
+let dbReady = false;
+setTimeout(() => {
+    dbReady = true;
+    console.log('✓ Database ready for operations');
+}, 2000);
 
 // SSE endpoint - browsers connect here for real-time updates
 app.get('/events', (req, res) => {
@@ -57,10 +65,10 @@ function broadcastUpdate(serverId, status) {
 }
 
 // Receive status updates from backup scripts
-app.post('/api/status/:serverId', (req, res) => {
+app.post('/api/status/:serverId', async (req, res) => {
     const { serverId } = req.params;
     const { status, message, progress, data } = req.body;
-    
+
     const statusUpdate = {
         status: status || 'unknown',
         message: message || '',
@@ -69,14 +77,28 @@ app.post('/api/status/:serverId', (req, res) => {
         timestamp: new Date().toISOString(),
         lastUpdate: new Date().toLocaleString()
     };
-    
+
     backupStatuses[serverId] = statusUpdate;
-    
+
     console.log(`[${serverId}] ${status}: ${message}`);
-    
+
+    // Guardar en BD si está lista
+    if (dbReady) {
+        try {
+            await StatusHistory.add(serverId, status, message, progress, data, new Date());
+
+            // Actualizar métricas diarias
+            if (status === 'completed' || status === 'failed' || status === 'error') {
+                await DailyMetrics.updateDaily(serverId);
+            }
+        } catch (error) {
+            console.error('Error saving to database:', error);
+        }
+    }
+
     // Broadcast to all connected browsers via SSE
     broadcastUpdate(serverId, statusUpdate);
-    
+
     res.json({ success: true });
 });
 
@@ -120,8 +142,110 @@ app.get('/api/health', (req, res) => {
         status: 'ok',
         uptime: process.uptime(),
         connectedClients: sseClients.length,
-        trackedServers: Object.keys(backupStatuses).length
+        trackedServers: Object.keys(backupStatuses).length,
+        dbReady: dbReady
     });
+});
+
+// ============================================
+// History & Statistics Endpoints
+// ============================================
+
+// Get history for a specific server
+app.get('/api/history/:serverId', async (req, res) => {
+    const { serverId } = req.params;
+    const { limit = 100, offset = 0 } = req.query;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const history = await StatusHistory.getByServerId(serverId, limit, offset);
+        res.json(history);
+    } catch (error) {
+        console.error('Error fetching history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get history between dates
+app.get('/api/history/:serverId/range', async (req, res) => {
+    const { serverId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const history = await StatusHistory.getByDateRange(serverId, startDate, endDate);
+        res.json(history);
+    } catch (error) {
+        console.error('Error fetching date range history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get server statistics
+app.get('/api/stats/:serverId', async (req, res) => {
+    const { serverId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const stats = await StatusHistory.getStats(serverId);
+        res.json(stats);
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get today's summary for a server
+app.get('/api/summary/:serverId/today', async (req, res) => {
+    const { serverId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const summary = await StatusHistory.getTodaysSummary(serverId);
+        res.json(summary);
+    } catch (error) {
+        console.error('Error fetching today summary:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get daily metrics
+app.get('/api/metrics/:serverId/daily', async (req, res) => {
+    const { serverId } = req.params;
+
+    try {
+        if (!dbReady) {
+            return res.status(503).json({ error: 'Database not ready' });
+        }
+        const metrics = await DailyMetrics.getLastMonth(serverId);
+        res.json(metrics);
+    } catch (error) {
+        console.error('Error fetching daily metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get list of all servers
+app.get('/api/servers', async (req, res) => {
+    try {
+        if (!dbReady) {
+            // Si BD no está lista, devolver servidores del estado actual
+            return res.json(Object.keys(backupStatuses).map(id => ({ server_id: id })));
+        }
+        const servers = await Server.getAll();
+        res.json(servers);
+    } catch (error) {
+        console.error('Error fetching servers:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ============================================

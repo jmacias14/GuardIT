@@ -9,9 +9,34 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=guardit
+      - DB_USER=guardit
+      - DB_PASSWORD=guardit_secure_password_123
+    depends_on:
+      - postgres
     volumes:
       # Mount scripts folder if you want to test scripts inside the container
       - ./scripts:/app/scripts
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: guardit-postgres
+    environment:
+      - POSTGRES_USER=guardit
+      - POSTGRES_PASSWORD=guardit_secure_password_123
+      - POSTGRES_DB=guardit
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   grafana:
     image: grafana/grafana:latest
@@ -28,3 +53,4 @@ services:
 
 volumes:
   grafana-data:
+  postgres-data:
