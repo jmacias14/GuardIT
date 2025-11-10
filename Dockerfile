@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build:css
 
 # Create startup script
-RUN echo '#!/bin/sh\necho "Waiting for database to be ready..."\nsleep 5\necho "Running database migrations..."\nnode db/migrate.js\necho "Starting GuardIT server..."\nnode server.js' > /app/start.sh && chmod +x /app/start.sh
+RUN printf '#!/bin/sh\necho "Waiting for database to be ready..."\nsleep 5\necho "Running database migrations..."\nnode db/migrate.js\necho "Starting GuardIT server..."\nnode server.js\n' > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
 EXPOSE 3000
